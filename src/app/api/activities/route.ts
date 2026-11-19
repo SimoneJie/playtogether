@@ -39,7 +39,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const uid = await getUid();
-  if (!uid) return NextResponse.json({ error: "请先填写昵称" }, { status: 401 });
+  if (!uid) return NextResponse.json({ error: "请先登录" }, { status: 401 });
 
   let body: any; // eslint-disable-line @typescript-eslint/no-explicit-any
   try {

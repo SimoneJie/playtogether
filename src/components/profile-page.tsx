@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Pencil, Check, X, Plus } from "lucide-react";
+import { Pencil, Check, X, Plus, LogOut } from "lucide-react";
 import ActivityCard from "./activity-card";
 import { Button, LoadingScreen, EmptyState } from "./ui";
 import { isPast } from "@/lib/activity";
@@ -10,7 +10,7 @@ import { useUser } from "./user-context";
 import type { ActivityView } from "@/lib/types";
 
 export default function ProfilePage() {
-  const { user, setUser } = useUser();
+  const { user, setUser, refresh } = useUser();
   const [activities, setActivities] = useState<ActivityView[] | null>(null);
 
   const [editing, setEditing] = useState(false);
@@ -49,7 +49,7 @@ export default function ProfilePage() {
   async function saveEdit() {
     const name = nickname.trim();
     if (!name) {
-      setErr("昵称不能为空");
+      setErr("用户名不能为空");
       return;
     }
     setSaving(true);
@@ -71,6 +71,14 @@ export default function ProfilePage() {
       setErr("网络错误");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function logout() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      await refresh();
     }
   }
 
@@ -122,7 +130,7 @@ export default function ProfilePage() {
                     <Pencil size={14} />
                   </button>
                 </div>
-                <p className="text-xs text-soft mt-0.5">无需密码的轻量身份，仅用于本群活动</p>
+                <p className="text-xs text-soft mt-0.5">用户名 + 密码登录</p>
               </div>
             )}
             {err && <p className="text-sm text-red-500 mt-1">{err}</p>}
@@ -142,6 +150,12 @@ export default function ProfilePage() {
             <div className="text-xl font-bold text-accent-600">{tentative.length}</div>
             <div className="text-xs text-soft">我暂定的</div>
           </div>
+        </div>
+
+        <div className="mt-4 flex justify-end">
+          <Button variant="outline" size="sm" onClick={logout}>
+            <LogOut size={15} /> 退出登录
+          </Button>
         </div>
       </section>
 

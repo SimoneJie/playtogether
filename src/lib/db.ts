@@ -2,7 +2,12 @@
 // SERVER ONLY — do not import this module from client components.
 
 import { Pool } from "pg";
-import { randomUUID } from "node:crypto";
+import {
+  randomUUID,
+  randomBytes,
+  scryptSync,
+  timingSafeEqual,
+} from "node:crypto";
 import type { User, Activity, Registration, ParticipationStatus } from "./types";
 
 type Row = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -50,8 +55,10 @@ const SCHEMA = `
     nickname TEXT NOT NULL UNIQUE,
     avatar TEXT NOT NULL DEFAULT '',
     color TEXT NOT NULL DEFAULT '#267a50',
+    password_hash TEXT NOT NULL DEFAULT '',
     created_at BIGINT NOT NULL
   );
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT '';
   CREATE TABLE IF NOT EXISTS activities (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -157,21 +164,60 @@ export async function getUserByNickname(nickname: string): Promise<User | null> 
   return r.rows[0] ? mapUser(r.rows[0]) : null;
 }
 
-/** Login-or-create by nickname: same nickname always resolves to the same account. */
-export async function loginOrCreateUser(nickname: string): Promise<User> {
+// ---------- password hashing (scrypt, Node built-in crypto) ----------
+
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const derived = scryptSync(password, salt, 64).toString("hex");
+  return `scrypt$${salt}$${derived}`;
+}
+
+function verifyPassword(password: string, stored: string): boolean {
+  const parts = stored.split("$");
+  if (parts.length !== 3 || parts[0] !== "scrypt") return false;
+  const [, salt, hashHex] = parts;
+  const derived = scryptSync(password, salt, 64);
+  const expected = Buffer.from(hashHex, "hex");
+  if (expected.length !== derived.length) return false;
+  return timingSafeEqual(derived, expected);
+}
+
+/** Register a new account. Username must be unique. */
+export async function registerUser(
+  username: string,
+  password: string
+): Promise<{ user: User } | { error: string }> {
   await ensureSchema();
+  const existing = await getUserByNickname(username);
+  if (existing) return { error: "该用户名已被注册" };
   const id = randomUUID();
-  const color = pickColor(nickname);
+  const color = pickColor(username);
   const now = Date.now();
-  const inserted = await pool.query(
-    `INSERT INTO users (id, nickname, avatar, color, created_at)
-     VALUES ($1, $2, '', $3, $4)
-     ON CONFLICT (nickname) DO NOTHING
-     RETURNING *`,
-    [id, nickname, color, now]
-  );
-  if (inserted.rows[0]) return mapUser(inserted.rows[0]);
-  return (await getUserByNickname(nickname))!;
+  try {
+    const inserted = await pool.query(
+      `INSERT INTO users (id, nickname, avatar, color, created_at, password_hash)
+       VALUES ($1, $2, '', $3, $4, $5)
+       RETURNING *`,
+      [id, username, color, now, hashPassword(password)]
+    );
+    return { user: mapUser(inserted.rows[0]) };
+  } catch (e: any) {
+    if (e?.code === "23505") return { error: "该用户名已被注册" };
+    throw e;
+  }
+}
+
+/** Verify username + password, returns the user or null. */
+export async function authenticateUser(
+  username: string,
+  password: string
+): Promise<User | null> {
+  await ensureSchema();
+  const r = await pool.query("SELECT * FROM users WHERE nickname = $1", [username]);
+  const row = r.rows[0];
+  if (!row || !row.password_hash) return null;
+  if (!verifyPassword(password, String(row.password_hash))) return null;
+  return mapUser(row);
 }
 
 export async function updateUser(

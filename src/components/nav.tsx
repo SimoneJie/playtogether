@@ -4,9 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useUser } from "./user-context";
 import { cn } from "@/lib/cn";
-import { Home, History, Plus, User as UserIcon } from "lucide-react";
-
-const GROUP_NAME = "一起玩";
+import { Home, History, Plus, User as UserIcon, LogOut } from "lucide-react";
+import { SITE_NAME_EN, SITE_NAME_ZH } from "@/lib/site";
 
 const NAV = [
   { href: "/", label: "活动", icon: Home },
@@ -17,9 +16,17 @@ const NAV = [
 
 export default function Nav() {
   const pathname = usePathname();
-  const { user } = useUser();
+  const { user, refresh } = useUser();
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+  async function logout() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      await refresh();
+    }
+  }
 
   return (
     <>
@@ -30,9 +37,9 @@ export default function Nav() {
             <span className="w-9 h-9 rounded-xl bg-primary text-white flex items-center justify-center text-lg">
               🏸
             </span>
-            <span className="font-bold text-ink text-lg">{GROUP_NAME}</span>
+            <span className="font-bold text-ink text-lg">{SITE_NAME_ZH}</span>
             <span className="text-xs text-soft hidden lg:inline">
-              让每一次相聚都有回应
+              {SITE_NAME_EN}
             </span>
           </Link>
           <nav className="flex items-center gap-1">
@@ -65,6 +72,13 @@ export default function Nav() {
             >
               {(user?.nickname ?? "?").slice(0, 1)}
             </Link>
+            <button
+              onClick={logout}
+              title="退出登录"
+              className="w-9 h-9 rounded-full flex items-center justify-center text-soft hover:bg-gray-100"
+            >
+              <LogOut size={18} />
+            </button>
           </div>
         </div>
       </header>
@@ -76,7 +90,7 @@ export default function Nav() {
             <span className="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center">
               🏸
             </span>
-            <span className="font-bold text-ink">{GROUP_NAME}</span>
+            <span className="font-bold text-ink">{SITE_NAME_ZH}</span>
           </Link>
           <Link
             href="/me"
