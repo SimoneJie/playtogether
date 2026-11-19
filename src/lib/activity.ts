@@ -1,0 +1,141 @@
+// Pure helpers for activity status, stats, probability and formatting.
+// Client-safe: no Node/server-only imports.
+
+import type { Activity, Registration, ActivityStats, ActivityStatus } from "./types";
+
+/** Minimal shape both `Activity` and `ActivityView` satisfy, for status helpers. */
+export type ActivityLike = Pick<
+  Activity,
+  "start_time" | "end_time" | "deadline"
+> & { status: ActivityStatus };
+
+export const CATEGORIES: { value: string; label: string; emoji: string }[] = [
+  { value: "羽毛球", label: "羽毛球", emoji: "🏸" },
+  { value: "KTV", label: "KTV", emoji: "🎤" },
+  { value: "聚餐", label: "聚餐", emoji: "🍽️" },
+  { value: "桌游", label: "桌游", emoji: "🎲" },
+  { value: "徒步", label: "徒步", emoji: "🥾" },
+  { value: "电影", label: "电影", emoji: "🎬" },
+  { value: "旅行", label: "旅行", emoji: "✈️" },
+  { value: "其他", label: "其他", emoji: "📅" },
+];
+
+export function categoryEmoji(category: string): string {
+  return CATEGORIES.find((c) => c.value === category)?.emoji ?? "📅";
+}
+
+export const COVER_EMOJIS = ["🏸", "🎤", "🍽️", "🎲", "🥾", "🎬", "✈️", "🍵", "⚽", "🏀", "🎮", "🎉", "🍢", "🚴", "🧗", "🎯"];
+
+export const STATUS_LABEL: Record<ActivityStatus, string> = {
+  open: "报名中",
+  upcoming: "即将开始",
+  deadline_passed: "已截止",
+  ended: "已结束",
+  cancelled: "已取消",
+};
+
+export const STATUS_BADGE: Record<ActivityStatus, string> = {
+  open: "bg-primary-50 text-primary-700",
+  upcoming: "bg-accent-50 text-accent-600",
+  deadline_passed: "bg-gray-100 text-gray-500",
+  ended: "bg-gray-100 text-gray-400",
+  cancelled: "bg-red-50 text-red-500",
+};
+
+/** Default activity duration when no end_time is provided. */
+const DEFAULT_DURATION_MS = 3 * 60 * 60 * 1000;
+
+export function activityStatus(a: ActivityLike, now = Date.now()): ActivityStatus {
+  if (a.status === "cancelled") return "cancelled";
+  const end = a.end_time ?? a.start_time + DEFAULT_DURATION_MS;
+  if (now > end) return "ended";
+  if (a.deadline != null && now > a.deadline) return "deadline_passed";
+  if (now >= a.start_time - 24 * 60 * 60 * 1000) return "upcoming";
+  return "open";
+}
+
+/** Whether a (non-cancelled) activity is no longer in the "current" hall. */
+export function isPast(a: ActivityLike, now = Date.now()): boolean {
+  const s = activityStatus(a, now);
+  return s === "ended" || s === "cancelled";
+}
+
+export function computeStats(regs: Registration[]): ActivityStats {
+  let confirmed = 0;
+  let tentative = 0;
+  let declined = 0;
+  let expected = 0;
+  let goingCount = 0;
+  let tentativeCount = 0;
+  for (const r of regs) {
+    const n = Math.max(1, r.participant_count || 1);
+    if (r.participation_status === "declined") {
+      declined += n;
+      continue;
+    }
+    if (r.participation_status === "going") {
+      confirmed += n;
+      expected += n;
+      goingCount += 1;
+    } else if (r.participation_status === "tentative") {
+      tentative += n;
+      expected += (n * (r.probability ?? 50)) / 100;
+      tentativeCount += 1;
+    }
+  }
+  return { confirmed, tentative, declined, expected, goingCount, tentativeCount };
+}
+
+/** Rule-based success probability (0–100), null when no target is set. */
+export function successProbability(
+  stats: ActivityStats,
+  target: number | null
+): number | null {
+  if (!target || target <= 0) return null;
+  const ratio = stats.expected / target;
+  return Math.max(0, Math.min(100, Math.round(ratio * 100)));
+}
+
+/** How many more people are needed to reach the target (0 when reached). */
+export function stillNeeded(
+  stats: ActivityStats,
+  target: number | null
+): number | null {
+  if (!target || target <= 0) return null;
+  return Math.max(0, Math.ceil(target - stats.expected));
+}
+
+export function isThisWeek(ms: number, now = Date.now()): boolean {
+  const d = new Date(now);
+  const day = (d.getDay() + 6) % 7; // Monday = 0
+  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate() - day).getTime();
+  const end = start + 7 * 24 * 60 * 60 * 1000;
+  return ms >= start && ms < end;
+}
+
+// ---------- formatting (local time) ----------
+
+const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+
+function pad(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** "11月21日 周六 · 14:00" */
+export function formatDateTime(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getMonth() + 1}月${d.getDate()}日 周${WEEKDAYS[d.getDay()]} · ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** "2025年11月21日 周六" */
+export function formatFullDate(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 周${WEEKDAYS[d.getDay()]}`;
+}
+
+/** "14:00" or "14:00 - 17:00" */
+export function formatTimeRange(start: number, end: number | null): string {
+  const s = new Date(start);
+  const hm = (x: Date) => `${pad(x.getHours())}:${pad(x.getMinutes())}`;
+  return end ? `${hm(s)} - ${hm(new Date(end))}` : `${hm(s)} 开始`;
+}
