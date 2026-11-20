@@ -49,3 +49,11 @@ git push -u origin main   # 需先开启代理，因为 github.com 被墙
 ## 6. 分享
 
 把「你的自定义域名」发给群友即可。
+
+## 7. 防止 Supabase 免费档被暂停
+
+Supabase 免费档在 **7 天无任何访问** 时会自动暂停项目。仓库已内置每天一次的「数据库 ping」：
+
+- `vercel.json` 里配置了 Vercel Cron，每天调用一次 `GET /api/cron/ping`（执行 `SELECT 1` 唤醒数据库）。
+- 部署后 Cron 自动生效，无需额外操作。
+- （可选加固）在 Vercel 环境变量里设置一个 `CRON_SECRET` 随机字符串，接口就只接受 Vercel Cron 的调用。
