@@ -82,8 +82,10 @@ export default function ActivityCard({ a }: { a: ActivityView }) {
                   </span>{" "}
                   人（目标 {a.target_participants} 人）
                 </>
-              ) : (
+              ) : a.stats.confirmed >= a.target_participants ? (
                 <>已达标（目标 {a.target_participants} 人）</>
+              ) : (
+                <>即将达标（目标 {a.target_participants} 人）</>
               )
             ) : (
               <>预计参与 {Math.round(a.stats.expected)} 人</>

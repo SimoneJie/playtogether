@@ -115,7 +115,7 @@ export default function HistoryPage() {
         <EmptyState
           icon={<HistoryIcon className="h-7 w-7 text-primary" />}
           title="还没有历史活动"
-          desc="结束或取消的活动会出现在这里"
+          desc="已结束、已截止或已取消的活动会出现在这里"
           action={
             <Link href="/">
               <Button variant="secondary">去活动大厅看看</Button>
@@ -126,7 +126,7 @@ export default function HistoryPage() {
         <>
           {hydrated && (
             <p className="text-xs text-soft">
-              共 {list.length} 场已结束或已取消的活动
+              共 {list.length} 场已结束、已截止或已取消的活动
             </p>
           )}
           <div className="grid gap-4 md:grid-cols-2">

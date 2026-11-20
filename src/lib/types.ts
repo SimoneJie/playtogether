@@ -3,8 +3,12 @@
 export interface User {
   id: string;
   nickname: string;
+  /** 个性签名（可选），报名名单中显示在名字后面 */
+  signature: string;
   avatar: string;
   color: string;
+  /** 是否为管理员（可删除活动） */
+  is_admin: boolean;
   created_at: number;
 }
 
@@ -38,6 +42,8 @@ export interface Activity {
   allow_tentative: boolean;
   allow_status_change: boolean;
   public_roster: boolean;
+  /** 报名是否需要密码 */
+  require_password: boolean;
   status: "open" | "cancelled";
   creator_id: string;
   created_at: number;

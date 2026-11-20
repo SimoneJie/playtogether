@@ -3,8 +3,7 @@ import { getUid } from "@/lib/auth";
 import {
   listActivities,
   createActivity,
-  listRegistrations,
-  getRegistration,
+  listRegistrationsForActivities,
 } from "@/lib/db";
 import {
   computeStats,
@@ -17,23 +16,24 @@ import { parseActivityInput } from "@/lib/parse";
 export async function GET() {
   const uid = await getUid();
   const all = await listActivities();
-  const activities = await Promise.all(
-    all.map(async (a) => {
-      const regs = await listRegistrations(a.id);
-      const stats = computeStats(regs);
-      const my = uid ? await getRegistration(a.id, uid) : null;
-      return {
-        ...a,
-        status: activityStatus(a),
-        stats,
-        probability: successProbability(stats, a.target_participants),
-        stillNeeded: stillNeeded(stats, a.target_participants),
-        registrationCount: regs.length,
-        myStatus: my?.participation_status ?? null,
-        isMine: uid != null && a.creator_id === uid,
-      };
-    })
+  const regsByActivity = await listRegistrationsForActivities(
+    all.map((a) => a.id)
   );
+  const activities = all.map((a) => {
+    const regs = regsByActivity[a.id] ?? [];
+    const stats = computeStats(regs);
+    const my = uid ? regs.find((r) => r.user_id === uid) ?? null : null;
+    return {
+      ...a,
+      status: activityStatus(a),
+      stats,
+      probability: successProbability(stats, a.target_participants),
+      stillNeeded: stillNeeded(stats, a.target_participants),
+      registrationCount: regs.length,
+      myStatus: my?.participation_status ?? null,
+      isMine: uid != null && a.creator_id === uid,
+    };
+  });
   return NextResponse.json({ activities });
 }
 
@@ -51,6 +51,10 @@ export async function POST(req: Request) {
   const parsed = parseActivityInput(body);
   if ("error" in parsed) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
+
+  if (parsed.input.require_password && !parsed.input.password) {
+    return NextResponse.json({ error: "请设置报名密码" }, { status: 400 });
   }
 
   const activity = await createActivity(parsed.input, uid);

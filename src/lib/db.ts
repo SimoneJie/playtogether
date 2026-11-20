@@ -59,6 +59,8 @@ const SCHEMA = `
     created_at BIGINT NOT NULL
   );
   ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT '';
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS signature TEXT NOT NULL DEFAULT '';
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
   CREATE TABLE IF NOT EXISTS activities (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -75,10 +77,14 @@ const SCHEMA = `
     allow_tentative BOOLEAN NOT NULL DEFAULT TRUE,
     allow_status_change BOOLEAN NOT NULL DEFAULT TRUE,
     public_roster BOOLEAN NOT NULL DEFAULT TRUE,
+    require_password BOOLEAN NOT NULL DEFAULT FALSE,
+    password_hash TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'open',
     creator_id TEXT NOT NULL,
     created_at BIGINT NOT NULL
   );
+  ALTER TABLE activities ADD COLUMN IF NOT EXISTS require_password BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE activities ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT '';
   CREATE TABLE IF NOT EXISTS registrations (
     id TEXT PRIMARY KEY,
     activity_id TEXT NOT NULL,
@@ -97,7 +103,19 @@ const SCHEMA = `
 async function ensureSchema(): Promise<void> {
   if (schemaReady) return;
   await pool.query(SCHEMA);
+  await ensureAdmin();
   schemaReady = true;
+}
+
+/** 确保管理员账号存在（admin / admin123），并保留该用户名。 */
+async function ensureAdmin(): Promise<void> {
+  // 原子、幂等：并发/多实例下也不会重复插入；已存在则仅标记为管理员。
+  await pool.query(
+    `INSERT INTO users (id, nickname, avatar, color, created_at, password_hash, is_admin)
+     VALUES ($1, 'admin', '', '#267a50', $2, $3, TRUE)
+     ON CONFLICT (nickname) DO UPDATE SET is_admin = TRUE`,
+    [randomUUID(), Date.now(), hashPassword("admin123")]
+  );
 }
 
 // ---------- mappers ----------
@@ -106,8 +124,10 @@ function mapUser(r: Row): User {
   return {
     id: String(r.id),
     nickname: String(r.nickname),
+    signature: String(r.signature ?? ""),
     avatar: String(r.avatar ?? ""),
     color: String(r.color ?? "#267a50"),
+    is_admin: !!r.is_admin,
     created_at: Number(r.created_at),
   };
 }
@@ -131,6 +151,7 @@ function mapActivity(r: Row): Activity {
     allow_tentative: !!r.allow_tentative,
     allow_status_change: !!r.allow_status_change,
     public_roster: !!r.public_roster,
+    require_password: !!r.require_password,
     status: String(r.status) as Activity["status"],
     creator_id: String(r.creator_id),
     created_at: Number(r.created_at),
@@ -164,6 +185,19 @@ export async function getUserByNickname(nickname: string): Promise<User | null> 
   return r.rows[0] ? mapUser(r.rows[0]) : null;
 }
 
+/** 一次性批量取多个用户（避免名单 N+1 查询）。 */
+export async function getUsersByIds(ids: string[]): Promise<Map<string, User>> {
+  await ensureSchema();
+  const map = new Map<string, User>();
+  if (ids.length === 0) return map;
+  const r = await pool.query("SELECT * FROM users WHERE id = ANY($1)", [ids]);
+  for (const row of r.rows) {
+    const u = mapUser(row);
+    map.set(u.id, u);
+  }
+  return map;
+}
+
 // ---------- password hashing (scrypt, Node built-in crypto) ----------
 
 function hashPassword(password: string): string {
@@ -188,6 +222,9 @@ export async function registerUser(
   password: string
 ): Promise<{ user: User } | { error: string }> {
   await ensureSchema();
+  if (username.toLowerCase() === "admin") {
+    return { error: "该用户名不可用" };
+  }
   const existing = await getUserByNickname(username);
   if (existing) return { error: "该用户名已被注册" };
   const id = randomUUID();
@@ -222,12 +259,18 @@ export async function authenticateUser(
 
 export async function updateUser(
   id: string,
-  patch: { nickname?: string }
+  patch: { nickname?: string; signature?: string }
 ): Promise<User | null> {
   await ensureSchema();
   if (patch.nickname !== undefined) {
     await pool.query("UPDATE users SET nickname = $1 WHERE id = $2", [
       patch.nickname,
+      id,
+    ]);
+  }
+  if (patch.signature !== undefined) {
+    await pool.query("UPDATE users SET signature = $1 WHERE id = $2", [
+      patch.signature,
       id,
     ]);
   }
@@ -251,6 +294,10 @@ export interface ActivityInput {
   allow_tentative: boolean;
   allow_status_change: boolean;
   public_roster: boolean;
+  /** 报名是否需要密码 */
+  require_password: boolean;
+  /** 明文密码；为空表示不设置（创建）或不修改（编辑） */
+  password: string;
 }
 
 export async function getActivity(id: string): Promise<Activity | null> {
@@ -271,12 +318,15 @@ export async function createActivity(
 ): Promise<Activity> {
   await ensureSchema();
   const id = randomUUID();
+  const require_password = !!input.require_password;
+  const password_hash = require_password ? hashPassword(input.password) : "";
   const r = await pool.query(
     `INSERT INTO activities
       (id, title, category, description, location, start_time, end_time, deadline,
        target_participants, max_participants, expected_cost, cover,
-       allow_tentative, allow_status_change, public_roster, status, creator_id, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'open',$16,$17)
+       allow_tentative, allow_status_change, public_roster, require_password, password_hash,
+       status, creator_id, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'open',$18,$19)
      RETURNING *`,
     [
       id,
@@ -294,6 +344,8 @@ export async function createActivity(
       input.allow_tentative,
       input.allow_status_change,
       input.public_roster,
+      require_password,
+      password_hash,
       creatorId,
       Date.now(),
     ]
@@ -309,12 +361,26 @@ export async function updateActivity(
   const existing = await getActivity(id);
   if (!existing) return null;
   const next = { ...existing, ...patch };
+
+  // 报名密码：留空则保留原密码；关闭开关则清空；开启且填写则更新。
+  const raw = await pool.query(
+    "SELECT password_hash FROM activities WHERE id = $1",
+    [id]
+  );
+  let passwordHash = String(raw.rows[0]?.password_hash ?? "");
+  if (next.require_password) {
+    if (patch.password) passwordHash = hashPassword(patch.password);
+  } else {
+    passwordHash = "";
+  }
+
   await pool.query(
     `UPDATE activities SET
       title=$1, category=$2, description=$3, location=$4, start_time=$5, end_time=$6,
       deadline=$7, target_participants=$8, max_participants=$9, expected_cost=$10,
-      cover=$11, allow_tentative=$12, allow_status_change=$13, public_roster=$14
-     WHERE id=$15`,
+      cover=$11, allow_tentative=$12, allow_status_change=$13, public_roster=$14,
+      require_password=$15, password_hash=$16
+     WHERE id=$17`,
     [
       next.title,
       next.category,
@@ -330,6 +396,8 @@ export async function updateActivity(
       next.allow_tentative,
       next.allow_status_change,
       next.public_roster,
+      next.require_password,
+      passwordHash,
       id,
     ]
   );
@@ -343,6 +411,36 @@ export async function setActivityStatus(
   await ensureSchema();
   await pool.query("UPDATE activities SET status = $1 WHERE id = $2", [status, id]);
   return getActivity(id);
+}
+
+export async function getActivityPasswordHash(id: string): Promise<string> {
+  await ensureSchema();
+  const r = await pool.query(
+    "SELECT password_hash FROM activities WHERE id = $1",
+    [id]
+  );
+  return String(r.rows[0]?.password_hash ?? "");
+}
+
+export async function verifyActivityPassword(
+  id: string,
+  password: string
+): Promise<boolean> {
+  await ensureSchema();
+  const r = await pool.query(
+    "SELECT password_hash FROM activities WHERE id = $1",
+    [id]
+  );
+  const hash = String(r.rows[0]?.password_hash ?? "");
+  if (!hash) return true;
+  return verifyPassword(password, hash);
+}
+
+/** 永久删除活动及其所有报名记录（仅管理员）。 */
+export async function deleteActivity(id: string): Promise<void> {
+  await ensureSchema();
+  await pool.query("DELETE FROM registrations WHERE activity_id = $1", [id]);
+  await pool.query("DELETE FROM activities WHERE id = $1", [id]);
 }
 
 // ---------- registrations ----------
@@ -375,6 +473,24 @@ export async function listRegistrations(
     [activityId]
   );
   return r.rows.map(mapRegistration);
+}
+
+/** 一次性批量取多个活动的报名记录（避免 N+1 查询）。 */
+export async function listRegistrationsForActivities(
+  activityIds: string[]
+): Promise<Record<string, Registration[]>> {
+  await ensureSchema();
+  const out: Record<string, Registration[]> = {};
+  if (activityIds.length === 0) return out;
+  const r = await pool.query(
+    "SELECT * FROM registrations WHERE activity_id = ANY($1) ORDER BY updated_at ASC",
+    [activityIds]
+  );
+  for (const row of r.rows) {
+    const reg = mapRegistration(row);
+    (out[reg.activity_id] ??= []).push(reg);
+  }
+  return out;
 }
 
 export async function upsertRegistration(

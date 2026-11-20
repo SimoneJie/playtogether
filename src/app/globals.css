@@ -18,6 +18,8 @@
 
 html {
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -28,10 +30,34 @@ body {
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* 移动端交互体验：去除点击高亮、避免双击缩放/300ms 延迟 */
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* iOS Safari：输入框字号 < 16px 会在聚焦时自动放大页面，移动端统一 16px */
+@media (max-width: 640px) {
+  input:not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* 移动端原生日期/时间控件在 iOS 上高度不一致，统一最小高度 */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  min-height: 42px;
 }
 
 /* Probability slider */

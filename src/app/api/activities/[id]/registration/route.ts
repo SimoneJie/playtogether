@@ -5,6 +5,7 @@ import {
   upsertRegistration,
   deleteRegistration,
   listRegistrations,
+  verifyActivityPassword,
 } from "@/lib/db";
 import {
   computeStats,
@@ -59,6 +60,16 @@ export async function PUT(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "请选择参与状态" }, { status: 400 });
   if (ps === "tentative" && !activity.allow_tentative)
     return NextResponse.json({ error: "该活动不允许暂定报名" }, { status: 400 });
+
+  // 报名（确定/暂定）需要密码时校验密码
+  if (ps !== "declined" && activity.require_password) {
+    const password = String(body?.password ?? "");
+    if (!password)
+      return NextResponse.json({ error: "请输入报名密码" }, { status: 400 });
+    const ok = await verifyActivityPassword(id, password);
+    if (!ok)
+      return NextResponse.json({ error: "报名密码错误" }, { status: 400 });
+  }
 
   let probability = 100;
   if (ps === "declined") probability = 0;

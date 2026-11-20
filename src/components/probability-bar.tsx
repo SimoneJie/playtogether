@@ -6,10 +6,12 @@ export function ProbabilityBar({
   probability,
   stillNeeded,
   target,
+  confirmed,
 }: {
   probability: number | null;
   stillNeeded: number | null;
   target: number | null;
+  confirmed: number;
 }) {
   if (probability == null) {
     return (
@@ -40,7 +42,9 @@ export function ProbabilityBar({
         {target && stillNeeded != null
           ? stillNeeded > 0
             ? `目标 ${target} 人 · 还差 ${stillNeeded} 人`
-            : `目标 ${target} 人 · 已达到 🎉`
+            : confirmed >= target
+              ? `目标 ${target} 人 · 已达到 🎉`
+              : `目标 ${target} 人 · 即将达到`
           : "基于报名意向的估算值，仅供参考"}
       </div>
     </div>

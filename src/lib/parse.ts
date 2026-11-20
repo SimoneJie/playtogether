@@ -31,6 +31,11 @@ export function parseActivityInput(
     Number.isFinite(deadlineRaw) && deadlineRaw > 0 ? deadlineRaw : null;
   if (deadline == null) deadline = startRaw;
 
+  const require_password = body?.require_password === true;
+  const password = String(body?.password ?? "").trim().slice(0, 32);
+  if (password && (password.length < 4 || password.length > 16))
+    return { error: "报名密码为 4-16 位" };
+
   const input: ActivityInput = {
     title,
     category,
@@ -46,6 +51,8 @@ export function parseActivityInput(
     allow_tentative: body?.allow_tentative !== false,
     allow_status_change: body?.allow_status_change !== false,
     public_roster: body?.public_roster !== false,
+    require_password,
+    password,
   };
 
   return { input };

@@ -8,6 +8,7 @@ import { Button, LoadingScreen, EmptyState } from "./ui";
 import { isPast } from "@/lib/activity";
 import { useUser } from "./user-context";
 import type { ActivityView } from "@/lib/types";
+import { cn } from "@/lib/cn";
 
 export default function ProfilePage() {
   const { user, setUser, refresh } = useUser();
@@ -17,6 +18,11 @@ export default function ProfilePage() {
   const [nickname, setNickname] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+
+  const [editingSig, setEditingSig] = useState(false);
+  const [signature, setSignature] = useState("");
+  const [savingSig, setSavingSig] = useState(false);
+  const [sigErr, setSigErr] = useState("");
 
   useEffect(() => {
     fetch("/api/activities", { cache: "no-store" })
@@ -74,6 +80,34 @@ export default function ProfilePage() {
     }
   }
 
+  function startEditSig() {
+    setSignature(user?.signature ?? "");
+    setSigErr("");
+    setEditingSig(true);
+  }
+  async function saveEditSig() {
+    setSavingSig(true);
+    setSigErr("");
+    try {
+      const r = await fetch("/api/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signature: signature.trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setSigErr(d.error || "保存失败");
+        return;
+      }
+      setUser(d.user);
+      setEditingSig(false);
+    } catch {
+      setSigErr("网络错误");
+    } finally {
+      setSavingSig(false);
+    }
+  }
+
   async function logout() {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
@@ -103,37 +137,78 @@ export default function ProfilePage() {
                   onChange={(e) => setNickname(e.target.value)}
                   maxLength={24}
                   autoFocus
-                  className="rounded-xl border border-gray-200 px-3 py-2 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  className="w-full min-w-0 rounded-xl border border-gray-200 px-3 py-2 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
                 <button
                   onClick={saveEdit}
                   disabled={saving}
-                  className="w-9 h-9 rounded-xl bg-primary text-white flex items-center justify-center disabled:opacity-50"
+                  className="w-9 h-9 shrink-0 rounded-xl bg-primary text-white flex items-center justify-center disabled:opacity-50"
                 >
                   <Check size={18} />
                 </button>
                 <button
                   onClick={() => setEditing(false)}
-                  className="w-9 h-9 rounded-xl bg-gray-100 text-soft flex items-center justify-center"
+                  className="w-9 h-9 shrink-0 rounded-xl bg-gray-100 text-soft flex items-center justify-center"
                 >
                   <X size={18} />
                 </button>
               </div>
             ) : (
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-xl font-bold text-ink">{user.nickname}</h1>
-                  <button
-                    onClick={startEdit}
-                    className="w-7 h-7 rounded-lg bg-gray-100 text-soft flex items-center justify-center hover:bg-gray-200"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                </div>
-                <p className="text-xs text-soft mt-0.5">用户名 + 密码登录</p>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold text-ink">{user.nickname}</h1>
+                <button
+                  onClick={startEdit}
+                  className="w-7 h-7 shrink-0 rounded-lg bg-gray-100 text-soft flex items-center justify-center hover:bg-gray-200"
+                >
+                  <Pencil size={14} />
+                </button>
+              </div>
+            )}
+
+            {editingSig ? (
+              <div className="flex items-center gap-2 mt-1.5">
+                <input
+                  value={signature}
+                  onChange={(e) => setSignature(e.target.value)}
+                  maxLength={20}
+                  autoFocus
+                  placeholder="写一句个性签名"
+                  className="w-full min-w-0 rounded-xl border border-gray-200 px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                />
+                <button
+                  onClick={saveEditSig}
+                  disabled={savingSig}
+                  className="w-8 h-8 shrink-0 rounded-lg bg-primary text-white flex items-center justify-center disabled:opacity-50"
+                >
+                  <Check size={16} />
+                </button>
+                <button
+                  onClick={() => setEditingSig(false)}
+                  className="w-8 h-8 shrink-0 rounded-lg bg-gray-100 text-soft flex items-center justify-center"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-start gap-1.5 mt-1">
+                <p
+                  className={cn(
+                    "text-[13px] leading-snug break-words flex-1 min-w-0",
+                    user.signature ? "text-soft" : "text-gray-400"
+                  )}
+                >
+                  {user.signature || "未设置个性签名"}
+                </p>
+                <button
+                  onClick={startEditSig}
+                  className="w-6 h-6 shrink-0 mt-0.5 rounded-md bg-gray-100 text-soft flex items-center justify-center hover:bg-gray-200"
+                >
+                  <Pencil size={12} />
+                </button>
               </div>
             )}
             {err && <p className="text-sm text-red-500 mt-1">{err}</p>}
+            {sigErr && <p className="text-sm text-red-500 mt-1">{sigErr}</p>}
           </div>
         </div>
 

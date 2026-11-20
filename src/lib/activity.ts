@@ -17,6 +17,9 @@ export const CATEGORIES: { value: string; label: string; emoji: string }[] = [
   { value: "徒步", label: "徒步", emoji: "🥾" },
   { value: "电影", label: "电影", emoji: "🎬" },
   { value: "旅行", label: "旅行", emoji: "✈️" },
+  { value: "游戏", label: "游戏", emoji: "🎮" },
+  { value: "购物", label: "购物", emoji: "🛍️" },
+  { value: "拼单", label: "拼单", emoji: "🛒" },
   { value: "其他", label: "其他", emoji: "📅" },
 ];
 
@@ -24,7 +27,7 @@ export function categoryEmoji(category: string): string {
   return CATEGORIES.find((c) => c.value === category)?.emoji ?? "📅";
 }
 
-export const COVER_EMOJIS = ["🏸", "🎤", "🍽️", "🎲", "🥾", "🎬", "✈️", "🍵", "⚽", "🏀", "🎮", "🎉", "🍢", "🚴", "🧗", "🎯"];
+export const COVER_EMOJIS = ["🏸", "🎤", "🍽️", "🎲", "🥾", "🎬", "✈️", "🍵", "⚽", "🏀", "🎮", "🎉", "🍢", "🚴", "🧗", "🎯", "🛍️", "🛒"];
 
 export const STATUS_LABEL: Record<ActivityStatus, string> = {
   open: "报名中",
@@ -54,10 +57,13 @@ export function activityStatus(a: ActivityLike, now = Date.now()): ActivityStatu
   return "open";
 }
 
-/** Whether a (non-cancelled) activity is no longer in the "current" hall. */
+/**
+ * Whether an activity is no longer in the "current" hall.
+ * 已截止（报名截止）也视为过去，及时移入历史活动。
+ */
 export function isPast(a: ActivityLike, now = Date.now()): boolean {
   const s = activityStatus(a, now);
-  return s === "ended" || s === "cancelled";
+  return s === "ended" || s === "cancelled" || s === "deadline_passed";
 }
 
 export function computeStats(regs: Registration[]): ActivityStats {
@@ -92,8 +98,14 @@ export function successProbability(
   target: number | null
 ): number | null {
   if (!target || target <= 0) return null;
-  const ratio = stats.expected / target;
-  return Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  const p = Math.round((stats.expected / target) * 100);
+  if (p <= 0) return 0;
+  if (p >= 100) {
+    // 只有「确定参加」人数本身已达标时，成行概率才是 100%。
+    // 若达标依赖「暂定参加」的预期贡献，则存在不确定性，永不显示 100%。
+    return stats.confirmed >= target ? 100 : 99;
+  }
+  return p;
 }
 
 /** How many more people are needed to reach the target (0 when reached). */

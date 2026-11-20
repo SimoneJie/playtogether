@@ -57,6 +57,7 @@ export default function ActivityDetailPage() {
   const [probability, setProbability] = useState(50);
   const [count, setCount] = useState(1);
   const [remark, setRemark] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -122,6 +123,7 @@ export default function ActivityDetailPage() {
           probability,
           participantCount: count,
           remark,
+          password,
         }),
       });
       const d = await r.json();
@@ -169,6 +171,25 @@ export default function ActivityDetailPage() {
     }
   }
 
+  async function deleteActivityHard() {
+    if (!window.confirm("确定永久删除这场活动吗？删除后不可恢复，相关报名记录也会一并删除。")) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/activities/${id}/delete`, { method: "DELETE" });
+      const d = await r.json();
+      if (!r.ok) {
+        setError(d.error || "删除失败");
+        setBusy(false);
+        return;
+      }
+      flash("活动已删除");
+      window.location.href = "/";
+    } catch {
+      setError("网络错误，请重试");
+      setBusy(false);
+    }
+  }
+
   async function share() {
     try {
       await navigator.clipboard.writeText(window.location.href);
@@ -182,7 +203,7 @@ export default function ActivityDetailPage() {
     <div className="max-w-4xl mx-auto space-y-5">
       {/* toast */}
       {toast && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-ink text-white text-sm px-4 py-2 rounded-full shadow-lg">
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-2rem)] bg-ink text-white text-sm px-4 py-2 rounded-full shadow-lg text-center">
           {toast}
         </div>
       )}
@@ -288,6 +309,7 @@ export default function ActivityDetailPage() {
               probability={prob}
               stillNeeded={stillNeeded}
               target={a.target_participants}
+              confirmed={stats.confirmed}
             />
           </div>
         </div>
@@ -317,6 +339,9 @@ export default function ActivityDetailPage() {
               remark={remark}
               setRemark={setRemark}
               allowTentative={a.allow_tentative}
+              requirePassword={a.require_password}
+              password={password}
+              setPassword={setPassword}
               onSubmit={submitRegistration}
               onCancel={() => setShowForm(false)}
               busy={busy}
@@ -365,6 +390,9 @@ export default function ActivityDetailPage() {
             remark={remark}
             setRemark={setRemark}
             allowTentative={a.allow_tentative}
+            requirePassword={a.require_password}
+            password={password}
+            setPassword={setPassword}
             onSubmit={submitRegistration}
             onCancel={() => setShowForm(false)}
             busy={busy}
@@ -412,6 +440,15 @@ export default function ActivityDetailPage() {
           </Button>
         </section>
       )}
+
+      {/* Admin actions */}
+      {user?.is_admin && (
+        <section className="flex gap-3">
+          <Button variant="danger" onClick={deleteActivityHard} disabled={busy}>
+            <Trash2 size={16} /> 删除活动（管理员）
+          </Button>
+        </section>
+      )}
     </div>
   );
 }
@@ -426,6 +463,9 @@ function RegisterForm({
   remark,
   setRemark,
   allowTentative,
+  requirePassword,
+  password,
+  setPassword,
   onSubmit,
   onCancel,
   onWithdraw,
@@ -440,6 +480,9 @@ function RegisterForm({
   remark: string;
   setRemark: (s: string) => void;
   allowTentative: boolean;
+  requirePassword: boolean;
+  password: string;
+  setPassword: (s: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
   onWithdraw?: () => void;
@@ -490,6 +533,22 @@ function RegisterForm({
             <span>10% 不太确定</span>
             <span>90% 基本能来</span>
           </div>
+        </div>
+      )}
+
+      {status !== "declined" && requirePassword && (
+        <div>
+          <label className="block text-sm font-medium text-ink mb-1.5">
+            报名密码 <span className="text-red-400">*</span>
+          </label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            maxLength={16}
+            placeholder="请输入活动报名密码"
+            className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+          />
         </div>
       )}
 
@@ -565,15 +624,20 @@ function RosterGroup({
               {(user?.nickname ?? "?").slice(0, 1)}
             </span>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-ink truncate">
+              <div className="min-w-0 leading-snug">
+                <span className="text-sm font-medium text-ink">
                   {user?.nickname ?? "未知"}
                 </span>
+                {user?.signature && (
+                  <span className="ml-1.5 text-[11px] font-normal italic text-gray-400 break-words">
+                    {user.signature}
+                  </span>
+                )}
                 {registration.participant_count > 1 && (
-                  <span className="text-xs text-soft">×{registration.participant_count}</span>
+                  <span className="ml-1 text-xs text-soft">×{registration.participant_count}</span>
                 )}
                 {registration.participation_status === "tentative" && (
-                  <Badge className="bg-accent-50 text-accent-600">
+                  <Badge className="ml-1 bg-accent-50 text-accent-600">
                     {registration.probability}%
                   </Badge>
                 )}

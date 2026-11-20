@@ -27,6 +27,8 @@ interface FormState {
   allow_tentative: boolean;
   allow_status_change: boolean;
   public_roster: boolean;
+  require_password: boolean;
+  password: string;
 }
 
 function pad(n: number): string {
@@ -77,6 +79,8 @@ export default function ActivityForm({
     allow_tentative: initial?.allow_tentative ?? true,
     allow_status_change: initial?.allow_status_change ?? true,
     public_roster: initial?.public_roster ?? true,
+    require_password: initial?.require_password ?? false,
+    password: "",
   }));
 
   const [error, setError] = useState("");
@@ -113,6 +117,8 @@ export default function ActivityForm({
       allow_tentative: form.allow_tentative,
       allow_status_change: form.allow_status_change,
       public_roster: form.public_roster,
+      require_password: form.require_password,
+      password: form.password,
     };
 
     setSubmitting(true);
@@ -367,6 +373,26 @@ export default function ActivityForm({
             label="公开参与名单"
             hint="关闭后仅发起人可见完整名单"
           />
+          <Toggle
+            checked={form.require_password}
+            onChange={(v) => set("require_password", v)}
+            label="需要密码报名"
+            hint="开启后成员报名需输入密码（默认关闭）"
+          />
+          {form.require_password && (
+            <div className="pt-1 pb-2">
+              <label className="block text-sm font-medium text-ink mb-1.5">
+                报名密码 <span className="text-red-400">*</span>
+              </label>
+              <input
+                value={form.password}
+                onChange={(e) => set("password", e.target.value)}
+                maxLength={16}
+                placeholder={mode === "edit" ? "留空则保持原密码" : "4-16 位密码"}
+                className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              />
+            </div>
+          )}
         </section>
 
         {error && <p className="text-sm text-red-500">{error}</p>}

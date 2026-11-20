@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { getUid } from "@/lib/auth";
-import { getActivity, updateActivity, setActivityStatus } from "@/lib/db";
+import {
+  getActivity,
+  updateActivity,
+  setActivityStatus,
+  getActivityPasswordHash,
+} from "@/lib/db";
 import { parseActivityInput } from "@/lib/parse";
 import { activityDetail } from "@/lib/enrich";
 
@@ -35,6 +40,13 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const parsed = parseActivityInput(body);
   if ("error" in parsed) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
+
+  if (parsed.input.require_password && !parsed.input.password) {
+    const existingHash = await getActivityPasswordHash(id);
+    if (!existingHash) {
+      return NextResponse.json({ error: "请设置报名密码" }, { status: 400 });
+    }
   }
 
   const updated = await updateActivity(id, parsed.input);
