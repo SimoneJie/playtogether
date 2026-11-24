@@ -1,11 +1,21 @@
 import { NextResponse } from "next/server";
 import { getUid } from "@/lib/auth";
-import { getUser, getUserByNickname, updateUser } from "@/lib/db";
+import {
+  getUser,
+  getUserByNickname,
+  updateUser,
+  listGroupsForUser,
+  listPendingSettlementsForUser,
+} from "@/lib/db";
 
 export async function GET() {
   const uid = await getUid();
-  const user = uid ? await getUser(uid) : null;
-  return NextResponse.json({ user });
+  const [user, groups, pendingSettlements] = await Promise.all([
+    uid ? getUser(uid) : Promise.resolve(null),
+    uid ? listGroupsForUser(uid) : Promise.resolve([]),
+    uid ? listPendingSettlementsForUser(uid) : Promise.resolve([]),
+  ]);
+  return NextResponse.json({ user, groups, pendingSettlements });
 }
 
 // 修改用户名（登录名，需保持唯一）或个性签名

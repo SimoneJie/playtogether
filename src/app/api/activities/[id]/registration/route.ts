@@ -6,6 +6,7 @@ import {
   deleteRegistration,
   listRegistrations,
   verifyActivityPassword,
+  isGroupMember,
 } from "@/lib/db";
 import {
   computeStats,
@@ -42,8 +43,24 @@ export async function PUT(req: Request, ctx: Ctx) {
   const activity = await getActivity(id);
   if (!activity) return NextResponse.json({ error: "活动不存在" }, { status: 404 });
 
+  // 团体私有活动：仅本团体成员可报名
+  if (activity.group_id && activity.visibility !== "public") {
+    const member = await isGroupMember(activity.group_id, uid);
+    if (!member)
+      return NextResponse.json(
+        { error: "该活动仅团体成员可报名" },
+        { status: 403 }
+      );
+  }
+
   const status = activityStatus(activity);
-  if (status === "ended" || status === "cancelled")
+  if (
+    status === "ended" ||
+    status === "cancelled" ||
+    status === "pending_settlement" ||
+    status === "settled" ||
+    status === "not_held"
+  )
     return NextResponse.json({ error: "活动已结束，无法报名" }, { status: 400 });
   if (status === "deadline_passed")
     return NextResponse.json({ error: "报名已截止" }, { status: 400 });

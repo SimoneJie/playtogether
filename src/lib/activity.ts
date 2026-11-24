@@ -1,12 +1,18 @@
 // Pure helpers for activity status, stats, probability and formatting.
 // Client-safe: no Node/server-only imports.
 
-import type { Activity, Registration, ActivityStats, ActivityStatus } from "./types";
+import type {
+  Activity,
+  Registration,
+  ActivityStats,
+  ActivityStatus,
+  Visibility,
+} from "./types";
 
 /** Minimal shape both `Activity` and `ActivityView` satisfy, for status helpers. */
 export type ActivityLike = Pick<
   Activity,
-  "start_time" | "end_time" | "deadline"
+  "start_time" | "end_time" | "deadline" | "settlement_status"
 > & { status: ActivityStatus };
 
 export const CATEGORIES: { value: string; label: string; emoji: string }[] = [
@@ -34,6 +40,9 @@ export const STATUS_LABEL: Record<ActivityStatus, string> = {
   upcoming: "即将开始",
   deadline_passed: "已截止",
   ended: "已结束",
+  pending_settlement: "待结算",
+  settled: "已结算",
+  not_held: "未成行",
   cancelled: "已取消",
 };
 
@@ -42,16 +51,30 @@ export const STATUS_BADGE: Record<ActivityStatus, string> = {
   upcoming: "bg-accent-50 text-accent-600",
   deadline_passed: "bg-gray-100 text-gray-500",
   ended: "bg-gray-100 text-gray-400",
+  pending_settlement: "bg-amber-50 text-amber-600",
+  settled: "bg-primary-50 text-primary-700",
+  not_held: "bg-gray-100 text-gray-400",
   cancelled: "bg-red-50 text-red-500",
 };
 
-/** Default activity duration when no end_time is provided. */
+const PAST_STATUSES: ActivityStatus[] = [
+  "ended",
+  "cancelled",
+  "deadline_passed",
+  "pending_settlement",
+  "settled",
+  "not_held",
+];
+
+/** Default activity duration when no end_time is provided (legacy only). */
 const DEFAULT_DURATION_MS = 3 * 60 * 60 * 1000;
 
 export function activityStatus(a: ActivityLike, now = Date.now()): ActivityStatus {
   if (a.status === "cancelled") return "cancelled";
+  if (a.settlement_status === "not_held") return "not_held";
+  if (a.settlement_status === "settled") return "settled";
   const end = a.end_time ?? a.start_time + DEFAULT_DURATION_MS;
-  if (now > end) return "ended";
+  if (now > end) return "pending_settlement";
   if (a.deadline != null && now > a.deadline) return "deadline_passed";
   if (now >= a.start_time - 24 * 60 * 60 * 1000) return "upcoming";
   return "open";
@@ -59,11 +82,10 @@ export function activityStatus(a: ActivityLike, now = Date.now()): ActivityStatu
 
 /**
  * Whether an activity is no longer in the "current" hall.
- * 已截止（报名截止）也视为过去，及时移入历史活动。
+ * 已截止 / 待结算 / 已结算 / 未成行 也视为过去，归入历史。
  */
 export function isPast(a: ActivityLike, now = Date.now()): boolean {
-  const s = activityStatus(a, now);
-  return s === "ended" || s === "cancelled" || s === "deadline_passed";
+  return PAST_STATUSES.includes(activityStatus(a, now));
 }
 
 export function computeStats(regs: Registration[]): ActivityStats {
@@ -150,4 +172,25 @@ export function formatTimeRange(start: number, end: number | null): string {
   const s = new Date(start);
   const hm = (x: Date) => `${pad(x.getHours())}:${pad(x.getMinutes())}`;
   return end ? `${hm(s)} - ${hm(new Date(end))}` : `${hm(s)} 开始`;
+}
+
+/** "3 小时" / "1 小时 30 分钟" / "45 分钟" */
+export function formatDuration(start: number, end: number | null): string | null {
+  if (!end || end <= start) return null;
+  const mins = Math.round((end - start) / 60000);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m} 分钟`;
+  if (m === 0) return `${h} 小时`;
+  return `${h} 小时 ${m} 分钟`;
+}
+
+/** 可见范围标签 */
+export function visibilityLabel(v: Visibility): string {
+  return v === "public" ? "全员可见" : "仅团体成员";
+}
+
+/** 积分显示：整数不带小数，小数保留 1 位 */
+export function formatScore(score: number): string {
+  return Number.isInteger(score) ? String(score) : score.toFixed(1);
 }

@@ -6,6 +6,7 @@ import { History as HistoryIcon, Plus } from "lucide-react";
 import ActivityCard from "./activity-card";
 import { Button, LoadingScreen, EmptyState } from "./ui";
 import { CATEGORIES, isPast, formatFullDate } from "@/lib/activity";
+import { fetchCached } from "@/lib/client-cache";
 import { useHydrated } from "@/lib/use-hydrated";
 import type { ActivityView } from "@/lib/types";
 import { cn } from "@/lib/cn";
@@ -22,8 +23,7 @@ export default function HistoryPage() {
   const hydrated = useHydrated();
 
   useEffect(() => {
-    fetch("/api/activities", { cache: "no-store" })
-      .then((r) => r.json())
+    fetchCached<{ activities: ActivityView[] }>("/api/activities")
       .then((d) => setActivities(d.activities ?? []))
       .catch(() => setActivities([]));
   }, []);
@@ -53,7 +53,7 @@ export default function HistoryPage() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-ink">历史活动</h1>
+        <h1 className="text-xl md:text-2xl font-bold tracking-tight text-ink">历史活动</h1>
         <Link href="/new">
           <Button size="sm">
             <Plus size={16} /> 发起活动
@@ -67,9 +67,9 @@ export default function HistoryPage() {
             key={c}
             onClick={() => setCat(c)}
             className={cn(
-              "shrink-0 inline-flex items-center gap-1 rounded-full px-3.5 py-1.5 text-sm border transition-colors",
+              "shrink-0 inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm border transition-colors",
               cat === c
-                ? "bg-primary text-white border-primary"
+                ? "bg-primary text-white border-primary shadow-sm"
                 : "bg-white text-soft border-gray-200 hover:border-primary/40"
             )}
           >
@@ -86,7 +86,7 @@ export default function HistoryPage() {
           <button
             onClick={() => setMonth("全部")}
             className={cn(
-              "shrink-0 rounded-full px-3.5 py-1.5 text-sm border transition-colors",
+              "shrink-0 rounded-full px-4 py-2 text-sm border transition-colors",
               month === "全部"
                 ? "bg-ink text-white border-ink"
                 : "bg-white text-soft border-gray-200"
@@ -99,7 +99,7 @@ export default function HistoryPage() {
               key={m}
               onClick={() => setMonth(m)}
               className={cn(
-                "shrink-0 rounded-full px-3.5 py-1.5 text-sm border transition-colors",
+                "shrink-0 rounded-full px-4 py-2 text-sm border transition-colors",
                 month === m
                   ? "bg-ink text-white border-ink"
                   : "bg-white text-soft border-gray-200"

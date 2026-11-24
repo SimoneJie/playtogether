@@ -6,6 +6,7 @@ import { Plus, CalendarDays, Sparkles } from "lucide-react";
 import ActivityCard from "./activity-card";
 import { Button, LoadingScreen, EmptyState } from "./ui";
 import { CATEGORIES, isPast, isThisWeek } from "@/lib/activity";
+import { fetchCached } from "@/lib/client-cache";
 import type { ActivityView } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
@@ -20,12 +21,9 @@ export default function HomePage() {
 
   async function load() {
     try {
-      const r = await fetch("/api/activities", { cache: "no-store" });
-      const d = await r.json();
-      if (!r.ok) {
-        setError(d.error || "加载失败");
-        return;
-      }
+      const d = await fetchCached<{ activities: ActivityView[] }>(
+        "/api/activities"
+      );
       setActivities(d.activities ?? []);
     } catch {
       setError("网络错误，请刷新重试");
@@ -64,26 +62,38 @@ export default function HomePage() {
   return (
     <div className="space-y-5">
       {/* Hero */}
-      <section className="rounded-card bg-gradient-to-br from-primary to-primary-700 text-white p-6 md:p-8 shadow-card">
-        <div className="flex items-center gap-2 text-primary-100 text-sm">
-          <Sparkles size={16} /> 本周，约一场活动
+      <section className="relative overflow-hidden rounded-[26px] bg-gradient-to-br from-primary-600 via-primary to-primary-700 text-white p-7 md:p-11 shadow-card">
+        <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
+        <div className="relative flex items-center gap-2 text-primary-100 text-sm">
+          <span className="grid h-7 w-7 place-items-center rounded-full bg-white/15">
+            <Sparkles size={14} />
+          </span>
+          本周，约一场活动
         </div>
-        <h1 className="mt-2 text-2xl md:text-3xl font-bold">这个周末，约起来！</h1>
-        <p className="mt-1.5 text-primary-100 text-sm md:text-base">
+        <h1 className="relative mt-4 text-3xl md:text-4xl font-bold leading-[1.15] tracking-tight">
+          这个周末，约起来！
+        </h1>
+        <p className="relative mt-3 max-w-xl text-primary-50/90 text-sm md:text-base leading-relaxed">
           已有 {currentCount} 场活动正在组织，看看有没有你感兴趣的。
         </p>
-        <div className="mt-5 flex flex-wrap gap-3">
+        <div className="relative mt-7 flex flex-wrap items-center gap-3">
           <Link
             href="/new"
-            className="inline-flex items-center gap-1.5 rounded-xl bg-white text-primary px-4 py-2.5 text-sm font-semibold hover:bg-primary-50 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-2xl bg-white text-primary px-5 py-3 text-sm font-semibold shadow-lg shadow-black/10 transition-colors hover:bg-primary-50"
           >
             <Plus size={16} /> 发起新活动
           </Link>
           <Link
             href="/history"
-            className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 text-white px-4 py-2.5 text-sm font-medium hover:bg-white/20 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-2xl border border-white/25 bg-white/10 px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-white/20"
           >
             查看历史
+          </Link>
+          <Link
+            href="/groups"
+            className="inline-flex items-center gap-1.5 rounded-2xl border border-white/25 bg-white/10 px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-white/20"
+          >
+            我的团体
           </Link>
         </div>
       </section>
@@ -95,10 +105,10 @@ export default function HomePage() {
             key={c}
             onClick={() => setCat(c)}
             className={cn(
-              "shrink-0 inline-flex items-center gap-1 rounded-full px-3.5 py-1.5 text-sm border transition-colors",
+              "shrink-0 inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm border transition-colors",
               cat === c
-                ? "bg-primary text-white border-primary"
-                : "bg-white text-soft border-gray-200 hover:border-primary/40"
+                ? "bg-primary text-white border-primary shadow-sm"
+                : "bg-white text-soft border-gray-200 hover:border-primary/40 hover:bg-gray-50"
             )}
           >
             {c !== "全部" && (
@@ -110,14 +120,16 @@ export default function HomePage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-white rounded-xl p-1 border border-gray-100 shadow-sm">
+      <div className="flex gap-1 bg-white/70 rounded-2xl p-1.5 border border-gray-100 shadow-sm">
         {TABS.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "flex-1 rounded-lg py-2 text-sm font-medium transition-colors",
-              tab === t ? "bg-primary-50 text-primary" : "text-soft hover:bg-gray-50"
+              "flex-1 rounded-xl py-2 text-sm font-medium transition-colors",
+              tab === t
+                ? "bg-primary-50 text-primary shadow-sm"
+                : "text-soft hover:bg-gray-50"
             )}
           >
             {t}

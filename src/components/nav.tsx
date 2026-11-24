@@ -4,13 +4,21 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useUser } from "./user-context";
 import { cn } from "@/lib/cn";
-import { Home, History, Plus, User as UserIcon, LogOut } from "lucide-react";
+import {
+  Home,
+  Users,
+  History,
+  Plus,
+  User as UserIcon,
+  LogOut,
+  Shield,
+} from "lucide-react";
 import { SITE_NAME_EN, SITE_NAME_ZH } from "@/lib/site";
 
 const NAV = [
   { href: "/", label: "活动", icon: Home },
+  { href: "/groups", label: "团体", icon: Users },
   { href: "/history", label: "历史", icon: History },
-  { href: "/new", label: "创建", icon: Plus },
   { href: "/me", label: "我的", icon: UserIcon },
 ];
 
@@ -31,13 +39,15 @@ export default function Nav() {
   return (
     <>
       {/* Desktop top nav */}
-      <header className="hidden md:block sticky top-0 z-30 bg-white/80 backdrop-blur border-b border-gray-100">
+      <header className="hidden md:block sticky top-0 z-30 bg-white border-b border-gray-100/80">
         <div className="mx-auto max-w-6xl px-8 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
             <span className="w-9 h-9 rounded-xl bg-primary text-white flex items-center justify-center text-lg">
               🏸
             </span>
-            <span className="font-bold text-ink text-lg">{SITE_NAME_ZH}</span>
+            <span className="font-bold text-ink text-xl tracking-tight">
+              {SITE_NAME_ZH}
+            </span>
             <span className="text-xs text-soft hidden lg:inline">
               {SITE_NAME_EN}
             </span>
@@ -57,6 +67,19 @@ export default function Nav() {
                 {n.label}
               </Link>
             ))}
+            {user?.is_admin && (
+              <Link
+                href="/admin"
+                className={cn(
+                  "px-3.5 py-2 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-1",
+                  isActive("/admin")
+                    ? "text-primary bg-primary-50"
+                    : "text-soft hover:bg-gray-100"
+                )}
+              >
+                <Shield size={14} /> 管理
+              </Link>
+            )}
           </nav>
           <div className="flex items-center gap-3">
             <Link
@@ -84,7 +107,7 @@ export default function Nav() {
       </header>
 
       {/* Mobile top bar */}
-      <header className="md:hidden sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-gray-100">
+      <header className="md:hidden sticky top-0 z-30 bg-white border-b border-gray-100/80">
         <div className="px-4 h-14 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <span className="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center">
@@ -92,13 +115,24 @@ export default function Nav() {
             </span>
             <span className="font-bold text-ink">{SITE_NAME_ZH}</span>
           </Link>
-          <Link
-            href="/me"
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold"
-            style={{ backgroundColor: user?.color ?? "#267a50" }}
-          >
-            {(user?.nickname ?? "?").slice(0, 1)}
-          </Link>
+          <div className="flex items-center gap-2">
+            {user?.is_admin && (
+              <Link
+                href="/admin"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-soft hover:bg-gray-100"
+                title="管理"
+              >
+                <Shield size={16} />
+              </Link>
+            )}
+            <Link
+              href="/me"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold"
+              style={{ backgroundColor: user?.color ?? "#267a50" }}
+            >
+              {(user?.nickname ?? "?").slice(0, 1)}
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -108,20 +142,6 @@ export default function Nav() {
           {NAV.map((n) => {
             const Icon = n.icon;
             const active = isActive(n.href);
-            if (n.href === "/new") {
-              return (
-                <Link
-                  key={n.href}
-                  href={n.href}
-                  className="flex flex-col items-center pt-1 pb-2"
-                >
-                  <span className="w-11 h-11 -mt-4 rounded-full bg-primary text-white flex items-center justify-center shadow-lg">
-                    <Plus size={22} />
-                  </span>
-                  <span className="text-[11px] text-soft mt-0.5">创建</span>
-                </Link>
-              );
-            }
             return (
               <Link
                 key={n.href}

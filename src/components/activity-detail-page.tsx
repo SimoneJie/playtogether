@@ -19,15 +19,19 @@ import {
 } from "lucide-react";
 import { Button, Badge, LoadingScreen } from "./ui";
 import { ProbabilityBar } from "./probability-bar";
+import { TitleBadge } from "./title-badge";
+import { SettlePanel } from "./settle-panel";
 import {
   categoryEmoji,
   STATUS_LABEL,
   STATUS_BADGE,
   formatFullDate,
   formatTimeRange,
+  formatScore,
 } from "@/lib/activity";
 import { useHydrated } from "@/lib/use-hydrated";
 import { useUser } from "./user-context";
+import { invalidateCache } from "@/lib/client-cache";
 import type { ActivityDetail, ParticipationStatus, RosterEntry } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
@@ -37,10 +41,10 @@ const STATUS_OPTIONS: {
   icon: typeof Check;
   activeClass: string;
 }[] = [
-  { value: "going", label: "确定参加", icon: Check, activeClass: "border-primary bg-primary-50 text-primary-700" },
-  { value: "tentative", label: "暂定参加", icon: HelpCircle, activeClass: "border-accent-600 bg-accent-50 text-accent-600" },
-  { value: "declined", label: "不参加", icon: X, activeClass: "border-gray-400 bg-gray-100 text-gray-500" },
-];
+    { value: "going", label: "确定参加", icon: Check, activeClass: "border-primary bg-primary-50 text-primary-700" },
+    { value: "tentative", label: "暂定参加", icon: HelpCircle, activeClass: "border-accent-600 bg-accent-50 text-accent-600" },
+    { value: "declined", label: "不参加", icon: X, activeClass: "border-gray-400 bg-gray-100 text-gray-500" },
+  ];
 
 export default function ActivityDetailPage() {
   const params = useParams<{ id: string }>();
@@ -105,8 +109,14 @@ export default function ActivityDetailPage() {
 
   const a = data.activity;
   const { stats, probability: prob, stillNeeded, roster, myRegistration, isMine } = data;
-  const closed =
-    a.status === "ended" || a.status === "cancelled";
+  const myRosterEntry = roster.find((r) => r.registration.user_id === user?.id);
+  const closed = [
+    "ended",
+    "pending_settlement",
+    "settled",
+    "not_held",
+    "cancelled",
+  ].includes(a.status);
   const deadlinePassed = a.status === "deadline_passed";
 
   const goingList = roster.filter((r) => r.registration.participation_status === "going");
@@ -133,6 +143,7 @@ export default function ActivityDetailPage() {
         return;
       }
       setShowForm(false);
+      invalidateCache("/api/activities");
       await load();
       flash("报名已更新");
     } catch {
@@ -148,6 +159,7 @@ export default function ActivityDetailPage() {
     try {
       await fetch(`/api/activities/${id}/registration`, { method: "DELETE" });
       setShowForm(false);
+      invalidateCache("/api/activities");
       await load();
       flash("已退出报名");
     } catch {
@@ -162,6 +174,7 @@ export default function ActivityDetailPage() {
     setBusy(true);
     try {
       await fetch(`/api/activities/${id}`, { method: "DELETE" });
+      invalidateCache("/api/activities");
       await load();
       flash("活动已取消");
     } catch {
@@ -216,7 +229,7 @@ export default function ActivityDetailPage() {
       </Link>
 
       {/* Header */}
-      <section className="rounded-card bg-white border border-gray-100 shadow-card overflow-hidden">
+      <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card overflow-hidden">
         {a.status === "cancelled" && (
           <div className="bg-red-50 text-red-600 text-sm px-5 py-2.5 font-medium">
             该活动已被发起人取消
@@ -231,8 +244,19 @@ export default function ActivityDetailPage() {
               <div className="flex flex-wrap items-center gap-1.5">
                 <Badge className="bg-gray-100 text-soft">{a.category}</Badge>
                 <Badge className={STATUS_BADGE[a.status]}>{STATUS_LABEL[a.status]}</Badge>
+                {data.group && (
+                  <Link
+                    href={`/groups/${data.group.id}`}
+                    className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-primary-50 text-primary-700"
+                  >
+                    👥 {data.group.name}
+                  </Link>
+                )}
+                {data.group && a.visibility === "public" && (
+                  <Badge className="bg-accent-50 text-accent-600">全员可见</Badge>
+                )}
               </div>
-              <h1 className="mt-2 text-2xl font-bold text-ink">{a.title}</h1>
+              <h1 className="mt-2 text-2xl md:text-3xl font-bold tracking-tight text-ink">{a.title}</h1>
             </div>
             <Button variant="outline" size="sm" onClick={share}>
               <Share2 size={15} /> 分享
@@ -281,7 +305,7 @@ export default function ActivityDetailPage() {
       </section>
 
       {/* Stats */}
-      <section className="rounded-card bg-white border border-gray-100 shadow-card p-5 md:p-6">
+      <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-5 md:p-6">
         <div className="grid grid-cols-3 gap-3 text-center">
           <div className="rounded-xl bg-primary-50/60 py-3">
             <div className="text-2xl font-bold text-primary">{stats.confirmed}</div>
@@ -315,14 +339,33 @@ export default function ActivityDetailPage() {
         </div>
       </section>
 
+      {data.canSettle && (
+        <SettlePanel
+          activityId={id}
+          roster={roster}
+          onDone={load}
+          flash={flash}
+        />
+      )}
+
       {/* Registration */}
-      <section className="rounded-card bg-white border border-gray-100 shadow-card p-5 md:p-6">
-        <h2 className="text-sm font-semibold text-ink mb-3">我的报名</h2>
+      <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-5 md:p-6">
+        <h2 className="text-sm font-semibold text-ink mb-3 flex items-center gap-1.5 flex-wrap">
+          我的报名
+          {data.myTitle && <TitleBadge title={data.myTitle} />}
+          {myRosterEntry && myRosterEntry.score != null && (
+            <span className="text-xs text-soft font-normal">
+              我的积分 {formatScore(myRosterEntry.score)}
+            </span>
+          )}
+        </h2>
 
         {closed ? (
           <p className="text-sm text-soft">活动已结束，无法报名。</p>
         ) : deadlinePassed ? (
           <p className="text-sm text-soft">报名已截止。</p>
+        ) : !data.canRegister ? (
+          <p className="text-sm text-soft">该活动仅团体成员可报名。</p>
         ) : !myRegistration ? (
           !showForm ? (
             <Button onClick={() => setShowForm(true)} size="lg" className="w-full md:w-auto">
@@ -404,7 +447,7 @@ export default function ActivityDetailPage() {
       </section>
 
       {/* Roster */}
-      <section className="rounded-card bg-white border border-gray-100 shadow-card p-5 md:p-6">
+      <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-5 md:p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-ink">
             参与名单
@@ -418,8 +461,8 @@ export default function ActivityDetailPage() {
           <p className="text-sm text-soft">发起人已隐藏参与名单。</p>
         ) : (
           <div className="space-y-5">
-            <RosterGroup title="确定参加" color="text-primary" list={goingList} />
-            <RosterGroup title="暂定参加" color="text-accent-600" list={tentativeList} />
+            <RosterGroup title="确定参加" color="text-primary" list={goingList} myId={user?.id ?? null} />
+            <RosterGroup title="暂定参加" color="text-accent-600" list={tentativeList} myId={user?.id ?? null} />
             {goingList.length === 0 && tentativeList.length === 0 && (
               <p className="text-sm text-soft">还没有人报名，快来第一个报名吧。</p>
             )}
@@ -603,10 +646,12 @@ function RosterGroup({
   title,
   color,
   list,
+  myId,
 }: {
   title: string;
   color: string;
   list: RosterEntry[];
+  myId: string | null;
 }) {
   if (list.length === 0) return null;
   return (
@@ -615,39 +660,60 @@ function RosterGroup({
         {title}（{list.length}）
       </div>
       <ul className="space-y-2">
-        {list.map(({ registration, user }) => (
-          <li key={registration.id} className="flex items-center gap-3">
-            <span
-              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0"
-              style={{ backgroundColor: user?.color ?? "#9ca3af" }}
-            >
-              {(user?.nickname ?? "?").slice(0, 1)}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="min-w-0 leading-snug">
-                <span className="text-sm font-medium text-ink">
-                  {user?.nickname ?? "未知"}
-                </span>
-                {user?.signature && (
-                  <span className="ml-1.5 text-[11px] font-normal italic text-gray-400 break-words">
-                    {user.signature}
+        {list.map(
+          ({ registration, user, title: userTitle, score, attendance }) => (
+            <li key={registration.id} className="flex items-center gap-3">
+              <span
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold shrink-0"
+                style={{ backgroundColor: user?.color ?? "#9ca3af" }}
+              >
+                {(user?.nickname ?? "?").slice(0, 1)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="min-w-0 leading-snug">
+                  <span className="text-sm font-medium text-ink">
+                    {user?.nickname ?? "未知"}
                   </span>
-                )}
-                {registration.participant_count > 1 && (
-                  <span className="ml-1 text-xs text-soft">×{registration.participant_count}</span>
-                )}
-                {registration.participation_status === "tentative" && (
-                  <Badge className="ml-1 bg-accent-50 text-accent-600">
-                    {registration.probability}%
-                  </Badge>
+                  {userTitle && (
+                    <TitleBadge title={userTitle} className="ml-1 align-middle" />
+                  )}
+                  {user?.signature && (
+                    <span className="ml-1.5 text-[11px] font-normal italic text-gray-400 break-words">
+                      {user.signature}
+                    </span>
+                  )}
+                  {registration.participant_count > 1 && (
+                    <span className="ml-1 text-xs text-soft">
+                      ×{registration.participant_count}
+                    </span>
+                  )}
+                  {registration.participation_status === "tentative" && (
+                    <Badge className="ml-1 bg-accent-50 text-accent-600">
+                      {registration.probability}%
+                    </Badge>
+                  )}
+                  {attendance && (
+                    <Badge
+                      className={cn(
+                        "ml-1",
+                        attendance === "attended"
+                          ? "bg-primary-50 text-primary-700"
+                          : "bg-red-50 text-red-500"
+                      )}
+                    >
+                      {attendance === "attended" ? "已参加" : "未参加"}
+                    </Badge>
+                  )}
+                </div>
+                {registration.remark && (
+                  <p className="text-xs text-soft truncate">
+                    {registration.remark}
+                  </p>
                 )}
               </div>
-              {registration.remark && (
-                <p className="text-xs text-soft truncate">{registration.remark}</p>
-              )}
-            </div>
-          </li>
-        ))}
+            </li>
+          )
+        )}
       </ul>
     </div>
   );

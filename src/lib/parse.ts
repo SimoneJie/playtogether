@@ -1,5 +1,6 @@
 // Server-only: parse + validate activity form input.
 import type { ActivityInput } from "./db";
+import type { Visibility } from "./types";
 
 function toInt(v: unknown): number | null {
   const n = parseInt(String(v ?? ""), 10);
@@ -23,8 +24,8 @@ export function parseActivityInput(
 
   const endRaw = Number(body?.end_time);
   const end_time = Number.isFinite(endRaw) && endRaw > 0 ? endRaw : null;
-  if (end_time != null && end_time <= startRaw)
-    return { error: "结束时间需要晚于开始时间" };
+  if (end_time == null) return { error: "请填写活动结束时间" };
+  if (end_time <= startRaw) return { error: "结束时间需要晚于开始时间" };
 
   const deadlineRaw = Number(body?.deadline);
   let deadline =
@@ -35,6 +36,10 @@ export function parseActivityInput(
   const password = String(body?.password ?? "").trim().slice(0, 32);
   if (password && (password.length < 4 || password.length > 16))
     return { error: "报名密码为 4-16 位" };
+
+  const group_id = body?.group_id ? String(body.group_id).trim() : null;
+  const visibility: Visibility =
+    body?.visibility === "public" ? "public" : "group";
 
   const input: ActivityInput = {
     title,
@@ -53,6 +58,8 @@ export function parseActivityInput(
     public_roster: body?.public_roster !== false,
     require_password,
     password,
+    group_id,
+    visibility,
   };
 
   return { input };

@@ -76,7 +76,7 @@ export default function Onboarding() {
           <div className="mx-auto w-16 h-16 rounded-2xl bg-primary text-white flex items-center justify-center text-3xl shadow-card">
             🏸
           </div>
-          <h1 className="mt-4 text-2xl font-bold text-ink">{SITE_NAME_ZH}</h1>
+          <h1 className="mt-4 text-2xl md:text-3xl font-bold tracking-tight text-ink">{SITE_NAME_ZH}</h1>
           <p className="mt-1 text-xs font-semibold tracking-wider text-soft uppercase">
             {SITE_NAME_EN}
           </p>
@@ -84,7 +84,7 @@ export default function Onboarding() {
 
         <form
           onSubmit={submit}
-          className="rounded-card bg-white p-6 shadow-card border border-gray-100 space-y-4"
+          className="rounded-2xl bg-white p-6 shadow-card border border-gray-100/70 space-y-4"
         >
           <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
             {(["login", "register"] as const).map((m) => (

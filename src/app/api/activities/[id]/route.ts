@@ -5,6 +5,8 @@ import {
   updateActivity,
   setActivityStatus,
   getActivityPasswordHash,
+  getUser,
+  isGroupMember,
 } from "@/lib/db";
 import { parseActivityInput } from "@/lib/parse";
 import { activityDetail } from "@/lib/enrich";
@@ -16,6 +18,21 @@ export async function GET(_req: Request, ctx: Ctx) {
   const uid = await getUid();
   const activity = await getActivity(id);
   if (!activity) return NextResponse.json({ error: "活动不存在" }, { status: 404 });
+
+  // 团体私有活动：非本团体成员不可见（Admin 除外）
+  if (activity.group_id && activity.visibility !== "public") {
+    const user = uid ? await getUser(uid) : null;
+    if (!user?.is_admin) {
+      const member = uid ? await isGroupMember(activity.group_id, uid) : false;
+      if (!member) {
+        return NextResponse.json(
+          { error: "该活动仅团体成员可见" },
+          { status: 403 }
+        );
+      }
+    }
+  }
+
   return NextResponse.json(await activityDetail(activity, uid));
 }
 
@@ -30,6 +47,8 @@ export async function PATCH(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "只有发起人可以编辑活动" }, { status: 403 });
   if (activity.status === "cancelled")
     return NextResponse.json({ error: "已取消的活动不能编辑" }, { status: 400 });
+  if (activity.settlement_status)
+    return NextResponse.json({ error: "已结算的活动不能编辑" }, { status: 400 });
 
   let body: any; // eslint-disable-line @typescript-eslint/no-explicit-any
   try {
@@ -40,6 +59,16 @@ export async function PATCH(req: Request, ctx: Ctx) {
   const parsed = parseActivityInput(body);
   if ("error" in parsed) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
+
+  if (parsed.input.group_id) {
+    const member = await isGroupMember(parsed.input.group_id, uid);
+    if (!member) {
+      return NextResponse.json(
+        { error: "只有该团体成员可以将活动归属到该团体" },
+        { status: 403 }
+      );
+    }
   }
 
   if (parsed.input.require_password && !parsed.input.password) {

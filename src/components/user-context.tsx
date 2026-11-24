@@ -8,10 +8,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { User } from "@/lib/types";
+import type { Group, PendingSettlement, User } from "@/lib/types";
 
 interface UserCtx {
   user: User | null;
+  groups: Group[];
+  pendingSettlements: PendingSettlement[];
   loading: boolean;
   refresh: () => Promise<void>;
   setUser: (u: User | null) => void;
@@ -19,6 +21,8 @@ interface UserCtx {
 
 const Ctx = createContext<UserCtx>({
   user: null,
+  groups: [],
+  pendingSettlements: [],
   loading: true,
   refresh: async () => {},
   setUser: () => {},
@@ -26,6 +30,10 @@ const Ctx = createContext<UserCtx>({
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [pendingSettlements, setPendingSettlements] = useState<
+    PendingSettlement[]
+  >([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -33,6 +41,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       const r = await fetch("/api/me", { cache: "no-store" });
       const d = await r.json();
       setUser(d.user ?? null);
+      setGroups(d.groups ?? []);
+      setPendingSettlements(d.pendingSettlements ?? []);
     } catch {
       // keep current user on network error
     } finally {
@@ -45,7 +55,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   return (
-    <Ctx.Provider value={{ user, loading, refresh, setUser }}>
+    <Ctx.Provider
+      value={{ user, groups, pendingSettlements, loading, refresh, setUser }}
+    >
       {children}
     </Ctx.Provider>
   );

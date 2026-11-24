@@ -1,11 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Button, Toggle } from "./ui";
-import { CATEGORIES, COVER_EMOJIS, categoryEmoji } from "@/lib/activity";
+import {
+  CATEGORIES,
+  COVER_EMOJIS,
+  categoryEmoji,
+  formatDuration,
+} from "@/lib/activity";
+import { useUser } from "./user-context";
+import { invalidateCache } from "@/lib/client-cache";
 import type { Activity } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
@@ -29,6 +36,8 @@ interface FormState {
   public_roster: boolean;
   require_password: boolean;
   password: string;
+  group_id: string;
+  visibility: "group" | "public";
 }
 
 function pad(n: number): string {
@@ -81,7 +90,19 @@ export default function ActivityForm({
     public_roster: initial?.public_roster ?? true,
     require_password: initial?.require_password ?? false,
     password: "",
+    group_id: initial?.group_id ?? "",
+    visibility: initial?.visibility ?? "group",
   }));
+
+  const { groups } = useUser();
+
+  useEffect(() => {
+    if (mode !== "create") return;
+    const params = new URLSearchParams(window.location.search);
+    const gid = params.get("groupId");
+    if (gid) setForm((f) => ({ ...f, group_id: gid }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
 
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -100,6 +121,8 @@ export default function ActivityForm({
     if (!form.location.trim()) return setError("请填写活动地点");
 
     const end_time = form.endTime ? combine(form.date, form.endTime) : null;
+    if (!end_time) return setError("请填写活动结束时间");
+    if (end_time <= start_time) return setError("结束时间需要晚于开始时间");
     const deadline = form.deadline ? new Date(form.deadline).getTime() : null;
 
     const payload = {
@@ -119,6 +142,8 @@ export default function ActivityForm({
       public_roster: form.public_roster,
       require_password: form.require_password,
       password: form.password,
+      group_id: form.group_id || null,
+      visibility: form.group_id ? form.visibility : "public",
     };
 
     setSubmitting(true);
@@ -137,6 +162,7 @@ export default function ActivityForm({
         return;
       }
       const id = d.activity?.id ?? activityId;
+      invalidateCache("/api/activities");
       router.push(`/activity/${id}`);
       router.refresh();
     } catch {
@@ -155,12 +181,12 @@ export default function ActivityForm({
         >
           <ArrowLeft size={18} />
         </Link>
-        <h1 className="text-xl font-bold text-ink">
+        <h1 className="text-xl md:text-2xl font-bold tracking-tight text-ink">
           {mode === "edit" ? "编辑活动" : "发起新活动"}
         </h1>
       </div>
 
-      <div className="rounded-card bg-white border border-gray-100 shadow-card p-5 md:p-6 space-y-6">
+      <div className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-5 md:p-6 space-y-6">
         {/* 基本信息 */}
         <section className="space-y-4">
           <h2 className="text-sm font-semibold text-ink">基本信息</h2>
@@ -176,6 +202,61 @@ export default function ActivityForm({
               className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-ink mb-1.5">
+              所属团体
+            </label>
+            <select
+              value={form.group_id}
+              onChange={(e) => set("group_id", e.target.value)}
+              className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-ink bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            >
+              <option value="">无（全站独立活动）</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-soft mt-1">
+              选择团体后，活动默认仅团体成员可见。
+            </p>
+          </div>
+
+          {form.group_id && (
+            <div>
+              <label className="block text-sm font-medium text-ink mb-1.5">
+                活动可见范围
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => set("visibility", "group")}
+                  className={cn(
+                    "flex-1 rounded-xl border px-3 py-2 text-sm",
+                    form.visibility === "group"
+                      ? "border-primary bg-primary-50 text-primary"
+                      : "border-gray-200 text-soft"
+                  )}
+                >
+                  仅团体成员
+                </button>
+                <button
+                  type="button"
+                  onClick={() => set("visibility", "public")}
+                  className={cn(
+                    "flex-1 rounded-xl border px-3 py-2 text-sm",
+                    form.visibility === "public"
+                      ? "border-primary bg-primary-50 text-primary"
+                      : "border-gray-200 text-soft"
+                  )}
+                >
+                  全员可见
+                </button>
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-ink mb-1.5">
@@ -228,7 +309,7 @@ export default function ActivityForm({
         {/* 时间地点 */}
         <section className="space-y-4">
           <h2 className="text-sm font-semibold text-ink">时间与地点</h2>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-ink mb-1.5">
                 活动日期 <span className="text-red-400">*</span>
@@ -253,10 +334,10 @@ export default function ActivityForm({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-ink mb-1.5">
-                结束时间（可选）
+                结束时间 <span className="text-red-400">*</span>
               </label>
               <input
                 type="time"
@@ -273,10 +354,23 @@ export default function ActivityForm({
                 type="datetime-local"
                 value={form.deadline}
                 onChange={(e) => set("deadline", e.target.value)}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                className="w-full min-w-0 rounded-xl border border-gray-200 px-3 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>
           </div>
+
+          {(() => {
+            const s = combine(form.date, form.startTime);
+            const e = form.endTime ? combine(form.date, form.endTime) : null;
+            if (s && e && e > s) {
+              return (
+                <p className="text-xs text-soft">
+                  活动持续 {formatDuration(s, e)}
+                </p>
+              );
+            }
+            return null;
+          })()}
 
           <div>
             <label className="block text-sm font-medium text-ink mb-1.5">
@@ -377,7 +471,7 @@ export default function ActivityForm({
             checked={form.require_password}
             onChange={(v) => set("require_password", v)}
             label="需要密码报名"
-            hint="开启后成员报名需输入密码（默认关闭）"
+            hint="开启后成员报名需输入密码"
           />
           {form.require_password && (
             <div className="pt-1 pb-2">

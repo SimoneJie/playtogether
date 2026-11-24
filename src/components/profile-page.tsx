@@ -2,17 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Pencil, Check, X, Plus, LogOut } from "lucide-react";
+import { Pencil, Check, X, Plus, LogOut, Users, Trophy } from "lucide-react";
 import ActivityCard from "./activity-card";
 import { Button, LoadingScreen, EmptyState } from "./ui";
-import { isPast } from "@/lib/activity";
+import { TitleBadge } from "./title-badge";
+import { isPast, formatScore, formatDateTime } from "@/lib/activity";
+import { fetchCached } from "@/lib/client-cache";
 import { useUser } from "./user-context";
-import type { ActivityView } from "@/lib/types";
+import type { ActivityView, CreditEntry } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
 export default function ProfilePage() {
-  const { user, setUser, refresh } = useUser();
+  const { user, setUser, refresh, groups } = useUser();
   const [activities, setActivities] = useState<ActivityView[] | null>(null);
+  const [credits, setCredits] = useState<CreditEntry[] | null>(null);
 
   const [editing, setEditing] = useState(false);
   const [nickname, setNickname] = useState("");
@@ -25,10 +28,15 @@ export default function ProfilePage() {
   const [sigErr, setSigErr] = useState("");
 
   useEffect(() => {
-    fetch("/api/activities", { cache: "no-store" })
-      .then((r) => r.json())
+    fetchCached<{ activities: ActivityView[] }>("/api/activities")
       .then((d) => setActivities(d.activities ?? []))
       .catch(() => setActivities([]));
+  }, []);
+
+  useEffect(() => {
+    fetchCached<{ entries: CreditEntry[] }>("/api/me/credits", 5000)
+      .then((d) => setCredits(d.entries ?? []))
+      .catch(() => setCredits([]));
   }, []);
 
   const mine = useMemo(
@@ -121,7 +129,7 @@ export default function ProfilePage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Profile card */}
-      <section className="rounded-card bg-white border border-gray-100 shadow-card p-6">
+      <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-6">
         <div className="flex items-center gap-4">
           <div
             className="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-2xl font-bold shrink-0"
@@ -155,7 +163,7 @@ export default function ProfilePage() {
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-ink">{user.nickname}</h1>
+                <h1 className="text-xl md:text-2xl font-bold tracking-tight text-ink">{user.nickname}</h1>
                 <button
                   onClick={startEdit}
                   className="w-7 h-7 shrink-0 rounded-lg bg-gray-100 text-soft flex items-center justify-center hover:bg-gray-200"
@@ -234,8 +242,93 @@ export default function ProfilePage() {
         </div>
       </section>
 
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-ink flex items-center gap-1.5">
+          <Users size={15} /> 我的团体
+          <span className="ml-1 text-soft font-normal">({groups.length})</span>
+        </h2>
+        {groups.length === 0 ? (
+          <div className="rounded-card bg-white border border-dashed border-gray-200 px-6 py-6 text-center text-sm text-soft">
+            还没有加入团体
+            <div className="mt-3 flex justify-center">
+              <Link href="/groups">
+                <Button size="sm" variant="secondary">
+                  <Plus size={15} /> 去创建 / 加入团体
+                </Button>
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            {groups.map((g) => (
+              <Link
+                key={g.id}
+                href={`/groups/${g.id}`}
+                className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-3 flex items-center gap-3 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-card-hover"
+              >
+                <span className="w-10 h-10 shrink-0 rounded-xl bg-primary-50 flex items-center justify-center text-xl">
+                  {g.avatar || "👥"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-medium text-ink truncate">
+                      {g.name}
+                    </span>
+                    <TitleBadge
+                      title={g.my_title}
+                      leave={g.on_leave ? g.leave_title || "请假中" : null}
+                    />
+                  </div>
+                  <div className="text-xs text-soft">
+                    积分 {formatScore(g.my_score)} · {g.member_count} 人
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
       <ProfileSection title="我发起的" list={mine} empty="你还没有发起过活动" />
       <ProfileSection title="我参与的" list={joined} empty="你还没有报名参加任何活动" />
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-ink flex items-center gap-1.5">
+          <Trophy size={15} className="text-accent-600" /> 积分明细
+        </h2>
+        {!credits || credits.length === 0 ? (
+          <div className="rounded-card bg-white border border-dashed border-gray-200 px-6 py-6 text-center text-sm text-soft">
+            还没有积分变化记录
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-white border border-gray-100/70 shadow-card divide-y divide-gray-100">
+            {credits.map((c) => (
+              <div key={c.id} className="flex items-center gap-3 px-4 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm text-ink truncate">
+                    {c.activity_title || c.reason || "积分调整"}
+                  </div>
+                  <div className="text-[11px] text-soft truncate">
+                    {formatDateTime(c.created_at)} · {c.reason}
+                  </div>
+                </div>
+                <div
+                  className={cn(
+                    "text-sm font-semibold shrink-0",
+                    c.change_amount >= 0 ? "text-primary" : "text-red-500"
+                  )}
+                >
+                  {c.change_amount >= 0 ? "+" : ""}
+                  {formatScore(c.change_amount)}
+                </div>
+                <div className="text-xs text-soft shrink-0 w-14 text-right">
+                  余 {formatScore(c.balance_after)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
