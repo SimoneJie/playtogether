@@ -9,6 +9,7 @@ type Variant =
   | "accent"
   | "ghost"
   | "danger"
+  | "dangerSolid"
   | "outline";
 type Size = "sm" | "md" | "lg";
 
@@ -18,6 +19,7 @@ const VARIANTS: Record<Variant, string> = {
   accent: "bg-accent text-white hover:bg-accent-600",
   ghost: "text-soft hover:bg-gray-100",
   danger: "bg-red-50 text-red-600 hover:bg-red-100",
+  dangerSolid: "bg-red-600 text-white hover:bg-red-700",
   outline: "border border-gray-200 text-ink hover:bg-gray-50",
 };
 
@@ -46,6 +48,76 @@ export function Button({
       )}
       {...props}
     />
+  );
+}
+
+export function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmText = "确定",
+  cancelText = "取消",
+  destructive = false,
+  loading = false,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  description?: ReactNode;
+  confirmText?: string;
+  cancelText?: string;
+  destructive?: boolean;
+  loading?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/45 flex items-center justify-center p-4"
+      onClick={() => {
+        if (!loading) onCancel();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-semibold text-ink">{title}</h3>
+        {description && (
+          <div className="mt-2 text-sm text-soft leading-relaxed">{description}</div>
+        )}
+        <div className="mt-5 flex gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={loading}
+            className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-ink hover:bg-gray-50 disabled:opacity-50"
+          >
+            {cancelText}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            className={
+              "flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60 " +
+              (destructive
+                ? "bg-red-600 hover:bg-red-700"
+                : "bg-primary hover:bg-primary-600")
+            }
+          >
+            {loading && (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            )}
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

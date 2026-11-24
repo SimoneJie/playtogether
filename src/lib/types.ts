@@ -133,6 +133,18 @@ export interface GroupInvite {
   created_at: number;
 }
 
+/** 管理员视角的团体列表项（不要求是成员）。 */
+export interface AdminGroup {
+  id: string;
+  name: string;
+  avatar: string;
+  description: string;
+  owner_id: string;
+  owner_nickname: string;
+  member_count: number;
+  created_at: number;
+}
+
 export interface CreditEntry {
   id: string;
   group_id: string;

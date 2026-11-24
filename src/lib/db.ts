@@ -24,6 +24,7 @@ import type {
   Visibility,
   SettlementStatus,
   TitleTag,
+  AdminGroup,
 } from "./types";
 import { CREDIT_CONFIG, DEFAULT_TITLES, round1 } from "./config";
 import { titleForScore, type TitleRule } from "./titles";
@@ -1545,5 +1546,79 @@ export async function updateGroup(
     params
   );
   return { ok: true };
+}
+
+/** 管理员视角：列出全部团体（不要求管理员是成员）。 */
+export async function listAllGroups(): Promise<AdminGroup[]> {
+  await ensureSchema();
+  const r = await pool.query(
+    `SELECT g.id, g.name, g.avatar, g.description, g.owner_id, g.created_at,
+            u.nickname AS owner_nickname,
+            (SELECT count(*)::int FROM group_members m
+             WHERE m.group_id = g.id AND m.status = 'active') AS member_count
+     FROM app_groups g
+     LEFT JOIN users u ON u.id = g.owner_id
+     ORDER BY g.created_at ASC`
+  );
+  return r.rows.map((row) => ({
+    id: String(row.id),
+    name: String(row.name),
+    avatar: String(row.avatar ?? ""),
+    description: String(row.description ?? ""),
+    owner_id: String(row.owner_id),
+    owner_nickname: String(row.owner_nickname ?? "未知"),
+    member_count: Number(row.member_count),
+    created_at: Number(row.created_at),
+  }));
+}
+
+/**
+ * 解散/删除团体（仅会长或管理员）。
+ * 级联删除：团体活动及报名/出勤、成员积分与积分流水、邀请码、称号规则、成员关系、团体本身。
+ * 操作不可恢复；不影响其他团体的数据。
+ */
+export async function deleteGroup(
+  groupId: string,
+  actorId: string
+): Promise<{ ok: true } | { error: string }> {
+  await ensureSchema();
+  const g = await pool.query(
+    "SELECT owner_id, name FROM app_groups WHERE id=$1",
+    [groupId]
+  );
+  if (!g.rows[0]) return { error: "团体不存在" };
+  const actor = await getUser(actorId);
+  const isAdmin = !!actor?.is_admin;
+  const isOwner = String(g.rows[0].owner_id) === actorId;
+  if (!isAdmin && !isOwner)
+    return { error: "只有会长或管理员可以删除团体" };
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "DELETE FROM activity_attendance WHERE activity_id IN (SELECT id FROM activities WHERE group_id=$1)",
+      [groupId]
+    );
+    await client.query(
+      "DELETE FROM registrations WHERE activity_id IN (SELECT id FROM activities WHERE group_id=$1)",
+      [groupId]
+    );
+    await client.query("DELETE FROM credit_ledger WHERE group_id=$1", [groupId]);
+    await client.query("DELETE FROM activities WHERE group_id=$1", [groupId]);
+    await client.query("DELETE FROM title_rules WHERE group_id=$1", [groupId]);
+    await client.query("DELETE FROM group_invites WHERE group_id=$1", [groupId]);
+    await client.query("DELETE FROM group_members WHERE group_id=$1", [groupId]);
+    await client.query("DELETE FROM app_groups WHERE id=$1", [groupId]);
+    await client.query("COMMIT");
+    return { ok: true };
+  } catch {
+    try {
+      await client.query("ROLLBACK");
+    } catch {}
+    return { error: "删除失败，请稍后重试" };
+  } finally {
+    client.release();
+  }
 }
 

@@ -6,6 +6,7 @@ import {
   listGroupInvites,
   listGroupActivities,
   updateGroup,
+  deleteGroup,
 } from "@/lib/db";
 import { activityView } from "@/lib/enrich";
 
@@ -71,4 +72,16 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const group = await getGroupForUser(id, uid);
   return NextResponse.json({ group });
+}
+
+/** 解散团体：仅会长或管理员；级联删除团体活动、成员积分等所有关联数据。 */
+export async function DELETE(_req: Request, ctx: Ctx) {
+  const { id } = await ctx.params;
+  const uid = await getUid();
+  if (!uid) return NextResponse.json({ error: "未登录" }, { status: 401 });
+
+  const result = await deleteGroup(id, uid);
+  if ("error" in result)
+    return NextResponse.json({ error: result.error }, { status: 403 });
+  return NextResponse.json(result);
 }

@@ -12,6 +12,7 @@ import {
   ArrowRightLeft,
   CalendarDays,
   Trophy,
+  AlertTriangle,
   Settings,
   Copy,
   KeyRound,
@@ -19,7 +20,7 @@ import {
   X,
 } from "lucide-react";
 import ActivityCard from "./activity-card";
-import { Button, LoadingScreen, EmptyState } from "./ui";
+import { Button, ConfirmDialog, LoadingScreen, EmptyState } from "./ui";
 import { TitleBadge } from "./title-badge";
 import { useUser } from "./user-context";
 import { formatScore } from "@/lib/activity";
@@ -115,14 +116,16 @@ export default function GroupDetailPage() {
     return <LoadingScreen />;
   }
 
-  const { group, members, invites, activities, isOwner } = data;
+  const { group, members, invites, activities } = data;
   const amOwner = group.owner_id === user?.id;
+  const isAdmin = !!user?.is_admin;
+  const canManage = amOwner || isAdmin;
 
   const tabs: { key: Tab; label: string; icon: typeof Users }[] = [
     { key: "activities", label: "活动", icon: CalendarDays },
     { key: "members", label: "成员", icon: Users },
     { key: "ranking", label: "积分榜", icon: Trophy },
-    ...(amOwner
+    ...(canManage
       ? [{ key: "settings" as Tab, label: "设置", icon: Settings }]
       : []),
   ];
@@ -212,10 +215,11 @@ export default function GroupDetailPage() {
       {tab === "ranking" && (
         <RankingTab members={members} myId={user?.id ?? ""} />
       )}
-      {tab === "settings" && amOwner && (
+      {tab === "settings" && canManage && (
         <SettingsTab
           group={group}
           invites={invites}
+          amOwner={amOwner}
           onSaved={async () => {
             await load();
             await refresh();
@@ -473,11 +477,13 @@ function RankingTab({ members, myId }: { members: GroupMemberView[]; myId: strin
 function SettingsTab({
   group,
   invites,
+  amOwner,
   onSaved,
   flash,
 }: {
   group: Group;
   invites: GroupInvite[];
+  amOwner: boolean;
   onSaved: () => Promise<void>;
   flash: (s: string) => void;
 }) {
@@ -487,6 +493,8 @@ function SettingsTab({
   const [saving, setSaving] = useState(false);
   const [rules, setRules] = useState<TitleRule[] | null>(null);
   const [savingRules, setSavingRules] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     fetch(`/api/groups/${group.id}/title-rules`, { cache: "no-store" })
@@ -592,8 +600,35 @@ function SettingsTab({
     );
   }
 
+  async function disband() {
+    setDeleting(true);
+    try {
+      const r = await fetch(`/api/groups/${group.id}`, { method: "DELETE" });
+      const d = await r.json();
+      if (!r.ok) {
+        flash(d.error || "删除失败");
+        setDeleting(false);
+        setConfirmDelete(false);
+        return;
+      }
+      window.location.href = "/groups";
+    } catch {
+      flash("网络错误");
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
+      {!amOwner && (
+        <div className="rounded-2xl bg-primary-50 border border-primary-100 px-4 py-3 text-xs text-primary-700 leading-relaxed">
+          你以管理员身份进入。团体资料、邀请码与称号规则由会长维护；如需删除团体，可在下方操作。
+        </div>
+      )}
+
+      {amOwner && (
+        <>
       <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-4 md:p-5 space-y-3">
         <h2 className="text-sm font-semibold text-ink">团体信息</h2>
         <input
@@ -751,6 +786,45 @@ function SettingsTab({
           </div>
         )}
       </section>
+        </>
+      )}
+
+      <section className="rounded-2xl bg-white border border-red-100 shadow-card p-4 md:p-5 space-y-3">
+        <h2 className="text-sm font-semibold text-red-600 flex items-center gap-1.5">
+          <AlertTriangle size={15} /> 危险操作
+        </h2>
+        <p className="text-xs text-soft">
+          解散团体将永久删除团体、团体活动、成员积分、积分流水、邀请码和称号规则，且不可恢复。
+        </p>
+        <Button
+          variant="dangerSolid"
+          onClick={() => setConfirmDelete(true)}
+          disabled={deleting}
+        >
+          {deleting ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            <Trash2 size={16} />
+          )}
+          解散团体
+        </Button>
+      </section>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        destructive
+        loading={deleting}
+        title={`解散团体「${group.name}」？`}
+        description={
+          <>
+            团体活动、成员积分、积分流水、邀请码和称号规则都会一并删除，
+            <span className="font-medium text-red-600">且不可恢复</span>。
+          </>
+        }
+        confirmText="确认解散"
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={disband}
+      />
     </div>
   );
 }
