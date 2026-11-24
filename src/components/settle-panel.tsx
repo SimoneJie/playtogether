@@ -6,15 +6,18 @@ import { Button } from "./ui";
 import { cn } from "@/lib/cn";
 import { invalidateCache } from "@/lib/client-cache";
 import type { RosterEntry } from "@/lib/types";
+import { CREDIT_CONFIG, round1 } from "@/lib/config";
 
 export function SettlePanel({
   activityId,
   roster,
+  penalty = CREDIT_CONFIG.PENALTY_RATIO,
   onDone,
   flash,
 }: {
   activityId: string;
   roster: RosterEntry[];
+  penalty?: number;
   onDone: () => Promise<void>;
   flash: (s: string) => void;
 }) {
@@ -98,6 +101,10 @@ export function SettlePanel({
       </h2>
       <p className="text-xs text-amber-700 mt-1">
         确认后系统按报名状态与出勤情况结算积分；若活动未成行，请点下方「未成行」。
+      </p>
+      <p className="text-xs text-amber-700/90 mt-1">
+        本团体缺席系数 {penalty.toFixed(1)}：确定参加却缺席约扣{" "}
+        {round1(CREDIT_CONFIG.BASE_REWARD * penalty)} 分，暂定按概率折算。
       </p>
 
       {members.length === 0 ? (

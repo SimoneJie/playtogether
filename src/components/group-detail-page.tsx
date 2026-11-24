@@ -17,6 +17,7 @@ import {
   Copy,
   KeyRound,
   Palmtree,
+  Gauge,
 } from "lucide-react";
 import ActivityCard from "./activity-card";
 import { Button, ConfirmDialog, LoadingScreen, EmptyState } from "./ui";
@@ -31,6 +32,7 @@ import type {
   GroupMemberView,
 } from "@/lib/types";
 import { validateTitleRules, type TitleRule } from "@/lib/titles";
+import { CREDIT_CONFIG, PENALTY_RATIO_RANGE, round1 } from "@/lib/config";
 
 interface GroupData {
   group: Group;
@@ -534,6 +536,8 @@ function SettingsTab({
   const [description, setDescription] = useState(group.description);
   const [announcement, setAnnouncement] = useState(group.announcement);
   const [saving, setSaving] = useState(false);
+  const [penalty, setPenalty] = useState(group.penalty_ratio ?? CREDIT_CONFIG.PENALTY_RATIO);
+  const [savingPenalty, setSavingPenalty] = useState(false);
   const [rules, setRules] = useState<TitleRule[] | null>(null);
   const [savingRules, setSavingRules] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -565,6 +569,28 @@ function SettingsTab({
       flash("网络错误");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function savePenalty() {
+    setSavingPenalty(true);
+    try {
+      const r = await fetch(`/api/groups/${group.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ penalty_ratio: penalty }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        flash(d.error || "保存失败");
+        return;
+      }
+      await onSaved();
+      flash(`缺席扣分系数已设为 ${penalty.toFixed(1)}`);
+    } catch {
+      flash("网络错误");
+    } finally {
+      setSavingPenalty(false);
     }
   }
 
@@ -698,6 +724,46 @@ function SettingsTab({
             />
             <Button onClick={saveInfo} disabled={saving}>
               {saving && <Loader2 size={16} className="animate-spin" />} 保存
+            </Button>
+          </section>
+
+          <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-4 md:p-5 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-ink flex items-center gap-1.5">
+                <Gauge size={15} className="text-primary" /> 缺席扣分系数
+              </h2>
+              <span className="text-xl font-bold text-primary tabular-nums">
+                {penalty.toFixed(1)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={PENALTY_RATIO_RANGE.MIN}
+              max={PENALTY_RATIO_RANGE.MAX}
+              step={0.1}
+              value={penalty}
+              onChange={(e) => setPenalty(Number(e.target.value))}
+              className="w-full accent-[var(--color-primary)]"
+            />
+            <div className="flex justify-between text-[11px] text-soft">
+              <span>{PENALTY_RATIO_RANGE.MIN.toFixed(1)} 轻</span>
+              <span>{PENALTY_RATIO_RANGE.MAX.toFixed(1)} 重</span>
+            </div>
+            <p className="text-xs text-soft leading-relaxed">
+              成员报名后未参加（缺席）时扣分 = {CREDIT_CONFIG.BASE_REWARD} 分 × 系数 ×
+              参与概率。确定参加缺席约扣
+              <span className="font-medium text-ink">
+                {" "}{round1(CREDIT_CONFIG.BASE_REWARD * penalty)} 分
+              </span>
+              ，暂定按 50% 概率约扣
+              <span className="font-medium text-ink">
+                {" "}{round1(CREDIT_CONFIG.BASE_REWARD * penalty * 0.5)} 分
+              </span>
+              。默认 0.7，仅会长可调。
+            </p>
+            <Button size="sm" onClick={savePenalty} disabled={savingPenalty}>
+              {savingPenalty && <Loader2 size={14} className="animate-spin" />}{" "}
+              保存系数
             </Button>
           </section>
 

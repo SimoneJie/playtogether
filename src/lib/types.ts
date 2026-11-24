@@ -94,6 +94,8 @@ export interface GroupSummary {
   id: string;
   name: string;
   avatar: string;
+  /** 该团体的缺席扣分系数（0.1~1.5，默认 0.7）。 */
+  penalty_ratio: number;
 }
 
 /** 团体（含当前用户视角的积分/称号）。 */

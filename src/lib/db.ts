@@ -26,7 +26,7 @@ import type {
   TitleTag,
   AdminGroup,
 } from "./types";
-import { CREDIT_CONFIG, DEFAULT_TITLES, round1 } from "./config";
+import { CREDIT_CONFIG, DEFAULT_TITLES, clampPenaltyRatio, round1 } from "./config";
 import { titleForScore, type TitleRule } from "./titles";
 
 type Row = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -147,8 +147,10 @@ const SCHEMA = `
     announcement TEXT NOT NULL DEFAULT '',
     owner_id TEXT NOT NULL,
     default_invite_code TEXT NOT NULL DEFAULT '',
+    penalty_ratio DOUBLE PRECISION NOT NULL DEFAULT 0.7,
     created_at BIGINT NOT NULL
   );
+  ALTER TABLE app_groups ADD COLUMN IF NOT EXISTS penalty_ratio DOUBLE PRECISION NOT NULL DEFAULT 0.7;
   CREATE TABLE IF NOT EXISTS group_members (
     id TEXT PRIMARY KEY,
     group_id TEXT NOT NULL,
@@ -777,6 +779,7 @@ function mapGroup(r: Row, uid: string, rules: TitleRule[]): Group {
     owner_id: String(r.owner_id),
     created_at: Number(r.created_at),
     member_count: Number(r.member_count ?? 0),
+    penalty_ratio: clampPenaltyRatio(r.penalty_ratio),
     my_role: String(r.owner_id) === uid ? "owner" : "member",
     my_score: score,
     my_title: titleForScore(score, rules),
@@ -817,7 +820,7 @@ export async function getGroupForUser(
 export async function getGroupSummary(id: string): Promise<GroupSummary | null> {
   await ensureSchema();
   const r = await pool.query(
-    "SELECT id, name, avatar FROM app_groups WHERE id=$1",
+    "SELECT id, name, avatar, penalty_ratio FROM app_groups WHERE id=$1",
     [id]
   );
   return r.rows[0]
@@ -825,6 +828,7 @@ export async function getGroupSummary(id: string): Promise<GroupSummary | null> 
         id: String(r.rows[0].id),
         name: String(r.rows[0].name),
         avatar: String(r.rows[0].avatar ?? ""),
+        penalty_ratio: clampPenaltyRatio(r.rows[0].penalty_ratio),
       }
     : null;
 }
@@ -837,7 +841,7 @@ export async function getGroupSummaries(
   const map = new Map<string, GroupSummary>();
   if (ids.length === 0) return map;
   const r = await pool.query(
-    "SELECT id, name, avatar FROM app_groups WHERE id = ANY($1)",
+    "SELECT id, name, avatar, penalty_ratio FROM app_groups WHERE id = ANY($1)",
     [ids]
   );
   for (const row of r.rows) {
@@ -845,6 +849,7 @@ export async function getGroupSummaries(
       id: String(row.id),
       name: String(row.name),
       avatar: String(row.avatar ?? ""),
+      penalty_ratio: clampPenaltyRatio(row.penalty_ratio),
     });
   }
   return map;
@@ -1323,6 +1328,15 @@ export async function settleActivity(
       return { error: "已取消的活动不能结算" };
     }
 
+    // 本团体的缺席惩罚系数（会长可设 0.1~1.5，默认 0.7）。
+    const groupRes = await client.query(
+      "SELECT penalty_ratio FROM app_groups WHERE id=$1",
+      [activity.group_id]
+    );
+    const penaltyRatio = clampPenaltyRatio(
+      groupRes.rows[0]?.penalty_ratio ?? CREDIT_CONFIG.PENALTY_RATIO
+    );
+
     const regRes = await client.query(
       "SELECT * FROM registrations WHERE activity_id=$1",
       [activityId]
@@ -1364,7 +1378,7 @@ export async function settleActivity(
       const raw =
         status === "attended"
           ? CREDIT_CONFIG.BASE_REWARD * p
-          : -CREDIT_CONFIG.BASE_REWARD * CREDIT_CONFIG.PENALTY_RATIO * p;
+          : -CREDIT_CONFIG.BASE_REWARD * penaltyRatio * p;
       const delta = round1(raw);
       if (delta === 0) continue;
 
@@ -1458,42 +1472,27 @@ export async function markActivityNotHeld(
 /**
  * 解析名单成员的称号：
  * - 团体活动：使用该团体自定义称号 + 成员在该团体的积分；
- * - 全站独立/公开活动：取成员「最高积分团体」的默认称号。
+ * - 广场（非团体）活动：称号属于团体体系，广场活动不展示称号与积分。
  */
 export async function rosterTitles(
   activity: Activity,
   userIds: string[]
 ): Promise<Map<string, { title: TitleTag; score: number | null }>> {
   const out = new Map<string, { title: TitleTag; score: number | null }>();
-  if (userIds.length === 0) return out;
+  // 广场活动不归属任何团体，不展示团体称号。
+  if (!activity.group_id || userIds.length === 0) return out;
 
-  if (activity.group_id) {
-    const rules = await getTitleRulesForGroup(activity.group_id);
-    const r = await pool.query(
-      "SELECT user_id, credit_score FROM group_members WHERE group_id=$1 AND status='active' AND user_id = ANY($2)",
-      [activity.group_id, userIds]
-    );
-    for (const row of r.rows) {
-      const score = Number(row.credit_score);
-      out.set(String(row.user_id), {
-        title: titleForScore(score, rules),
-        score,
-      });
-    }
-  } else {
-    const r = await pool.query(
-      `SELECT user_id, MAX(credit_score) AS best
-       FROM group_members WHERE status='active' AND user_id = ANY($1)
-       GROUP BY user_id`,
-      [userIds]
-    );
-    for (const row of r.rows) {
-      const score = Number(row.best);
-      out.set(String(row.user_id), {
-        title: titleForScore(score, DEFAULT_TITLES),
-        score: null,
-      });
-    }
+  const rules = await getTitleRulesForGroup(activity.group_id);
+  const r = await pool.query(
+    "SELECT user_id, credit_score FROM group_members WHERE group_id=$1 AND status='active' AND user_id = ANY($2)",
+    [activity.group_id, userIds]
+  );
+  for (const row of r.rows) {
+    const score = Number(row.credit_score);
+    out.set(String(row.user_id), {
+      title: titleForScore(score, rules),
+      score,
+    });
   }
   return out;
 }
@@ -1518,6 +1517,7 @@ export async function updateGroup(
     description?: string;
     announcement?: string;
     avatar?: string;
+    penalty_ratio?: number;
   },
   actorId: string
 ): Promise<{ ok: true } | { error: string }> {
@@ -1546,6 +1546,12 @@ export async function updateGroup(
   if (patch.avatar !== undefined) {
     sets.push(`avatar=$${i++}`);
     params.push(patch.avatar.slice(0, 16));
+  }
+  if (patch.penalty_ratio !== undefined) {
+    if (!Number.isFinite(patch.penalty_ratio))
+      return { error: "惩罚系数需在 0.1 ~ 1.5 之间" };
+    sets.push(`penalty_ratio=$${i++}`);
+    params.push(clampPenaltyRatio(patch.penalty_ratio));
   }
   if (sets.length === 0) return { ok: true };
   params.push(groupId);

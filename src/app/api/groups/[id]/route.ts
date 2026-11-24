@@ -50,6 +50,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
     description?: string;
     announcement?: string;
     avatar?: string;
+    penalty_ratio?: number;
   } = {};
   if (body?.name !== undefined) {
     const name = String(body.name).trim();
@@ -65,6 +66,15 @@ export async function PATCH(req: Request, ctx: Ctx) {
   if (body?.announcement !== undefined)
     patch.announcement = String(body.announcement);
   if (body?.avatar !== undefined) patch.avatar = String(body.avatar);
+  if (body?.penalty_ratio !== undefined) {
+    const ratio = Number(body.penalty_ratio);
+    if (!Number.isFinite(ratio) || ratio < 0.1 || ratio > 1.5)
+      return NextResponse.json(
+        { error: "惩罚系数需在 0.1 ~ 1.5 之间" },
+        { status: 400 }
+      );
+    patch.penalty_ratio = ratio;
+  }
 
   const result = await updateGroup(id, patch, uid);
   if ("error" in result)

@@ -343,6 +343,7 @@ export default function ActivityDetailPage() {
         <SettlePanel
           activityId={id}
           roster={roster}
+          penalty={data.group?.penalty_ratio}
           onDone={load}
           flash={flash}
         />
