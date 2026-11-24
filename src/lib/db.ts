@@ -1068,23 +1068,31 @@ export async function transferOwnership(
   return { ok: true };
 }
 
+/**
+ * 设置「自己」的请假状态。仅本人可操作，设置后团体全体成员可见。
+ * leaveUntil 为 null 表示结束请假。
+ */
 export async function setMemberLeave(
   groupId: string,
   userId: string,
   leaveUntil: number | null,
-  leaveTitle: string,
-  actorId: string
+  leaveTitle: string
 ): Promise<{ ok: true } | { error: string }> {
   await ensureSchema();
-  const g = await pool.query("SELECT owner_id FROM app_groups WHERE id=$1", [
-    groupId,
-  ]);
-  if (!g.rows[0]) return { error: "团体不存在" };
-  const isOwner = String(g.rows[0].owner_id) === actorId;
-  if (!isOwner && userId !== actorId) return { error: "没有权限" };
+  const m = await pool.query(
+    "SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2 AND status='active'",
+    [groupId, userId]
+  );
+  if (!m.rows[0]) return { error: "你不是该团体成员" };
+
+  const until =
+    leaveUntil != null && Number.isFinite(leaveUntil)
+      ? Math.trunc(leaveUntil)
+      : null;
+  const title = until == null ? "" : leaveTitle.trim().slice(0, 20) || "请假中";
   await pool.query(
     "UPDATE group_members SET leave_until=$1, leave_title=$2 WHERE group_id=$3 AND user_id=$4",
-    [leaveUntil, leaveTitle.slice(0, 20), groupId, userId]
+    [until, title, groupId, userId]
   );
   return { ok: true };
 }

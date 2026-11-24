@@ -16,8 +16,7 @@ import {
   Settings,
   Copy,
   KeyRound,
-  Check,
-  X,
+  Palmtree,
 } from "lucide-react";
 import ActivityCard from "./activity-card";
 import { Button, ConfirmDialog, LoadingScreen, EmptyState } from "./ui";
@@ -51,6 +50,7 @@ export default function GroupDetailPage() {
   const [tab, setTab] = useState<Tab>("activities");
   const [toast, setToast] = useState("");
   const [busy, setBusy] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -75,7 +75,10 @@ export default function GroupDetailPage() {
     setTimeout(() => setToast(""), 2200);
   }
 
-  async function memberAction(body: Record<string, unknown>) {
+  async function memberAction(
+    body: Record<string, unknown>,
+    successMsg = "操作成功"
+  ): Promise<boolean> {
     setBusy(true);
     setToast("");
     try {
@@ -87,20 +90,33 @@ export default function GroupDetailPage() {
       const d = await r.json();
       if (!r.ok) {
         flash(d.error || "操作失败");
-        return;
+        return false;
       }
       await load();
       await refresh();
       if (body.action === "leave") {
         window.location.href = "/groups";
-        return;
+        return true;
       }
-      flash("操作成功");
+      flash(successMsg);
+      return true;
     } catch {
       flash("网络错误");
+      return false;
     } finally {
       setBusy(false);
     }
+  }
+
+  async function saveLeave(v: {
+    leaveUntil: number | null;
+    leaveTitle: string;
+  }) {
+    const ok = await memberAction(
+      { action: "setLeave", leaveUntil: v.leaveUntil, leaveTitle: v.leaveTitle },
+      v.leaveUntil ? "请假状态已更新" : "已结束请假"
+    );
+    if (ok) setLeaveOpen(false);
   }
 
   if (!data) {
@@ -120,6 +136,10 @@ export default function GroupDetailPage() {
   const amOwner = group.owner_id === user?.id;
   const isAdmin = !!user?.is_admin;
   const canManage = amOwner || isAdmin;
+  const me = members.find((m) => m.user.id === user?.id) ?? null;
+  const myOnLeave = me ? me.on_leave : group.on_leave;
+  const myLeaveTitle = me ? me.leave_title : group.leave_title;
+  const leaveCount = members.filter((m) => m.on_leave).length;
 
   const tabs: { key: Tab; label: string; icon: typeof Users }[] = [
     { key: "activities", label: "活动", icon: CalendarDays },
@@ -157,14 +177,24 @@ export default function GroupDetailPage() {
               )}
             </div>
             <p className="text-primary-100 text-xs mt-1">
-              {group.member_count} 人 · 我的积分 {formatScore(group.my_score)}
+              {group.member_count} 人
+              {leaveCount > 0 && ` · 请假 ${leaveCount} 人`}
             </p>
-            <div className="mt-1">
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
               <TitleBadge
-                title={group.my_title}
-                leave={group.on_leave ? group.leave_title || "请假中" : null}
+                // title={group.my_title}
+                // leave={myOnLeave ? myLeaveTitle || "请假中" : null}
                 className="bg-white/15 text-white"
               />
+              {/* <button
+                type="button"
+                disabled={busy}
+                onClick={() => setLeaveOpen(true)}
+                className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-[11px] text-white/90 transition-colors hover:bg-white/25 disabled:opacity-50"
+              >
+                <Palmtree size={11} />
+                {myOnLeave ? "请假中 · 修改" : "设置请假"}
+              </button> */}
             </div>
           </div>
         </div>
@@ -210,6 +240,7 @@ export default function GroupDetailPage() {
           myId={user?.id ?? ""}
           busy={busy}
           onAction={memberAction}
+          onEditLeave={() => setLeaveOpen(true)}
         />
       )}
       {tab === "ranking" && (
@@ -227,6 +258,18 @@ export default function GroupDetailPage() {
           flash={flash}
         />
       )}
+
+      <LeaveDialog
+        open={leaveOpen}
+        busy={busy}
+        current={{
+          on_leave: myOnLeave,
+          leave_title: myLeaveTitle,
+          leave_until: me?.leave_until ?? group.leave_until,
+        }}
+        onCancel={() => setLeaveOpen(false)}
+        onSave={saveLeave}
+      />
     </div>
   );
 }
@@ -283,6 +326,7 @@ function MembersTab({
   myId,
   busy,
   onAction,
+  onEditLeave,
 }: {
   groupId: string;
   members: GroupMemberView[];
@@ -290,6 +334,7 @@ function MembersTab({
   myId: string;
   busy: boolean;
   onAction: (b: Record<string, unknown>) => void;
+  onEditLeave: () => void;
 }) {
   return (
     <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-4 md:p-5">
@@ -331,23 +376,6 @@ function MembersTab({
               {canManage && (
                 <div className="flex items-center gap-1 shrink-0">
                   <button
-                    title={m.on_leave ? "取消请假" : "设为请假"}
-                    disabled={busy}
-                    onClick={() =>
-                      onAction({
-                        action: "setLeave",
-                        userId: m.user.id,
-                        leaveUntil: m.on_leave
-                          ? null
-                          : Date.now() + 7 * 24 * 3600 * 1000,
-                        leaveTitle: "请假中",
-                      })
-                    }
-                    className="w-8 h-8 rounded-lg bg-gray-100 text-soft flex items-center justify-center hover:bg-gray-200 disabled:opacity-50"
-                  >
-                    {m.on_leave ? <X size={15} /> : <Check size={15} />}
-                  </button>
-                  <button
                     title="转让会长"
                     disabled={busy}
                     onClick={() => {
@@ -375,17 +403,29 @@ function MembersTab({
                   </button>
                 </div>
               )}
-              {!amOwner && isSelf && (
-                <button
-                  disabled={busy}
-                  onClick={() => {
-                    if (window.confirm("确定退出该团体吗？历史积分会保留。"))
-                      onAction({ action: "leave" });
-                  }}
-                  className="text-xs text-soft hover:text-red-500 shrink-0"
-                >
-                  退出
-                </button>
+              {isSelf && (
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={onEditLeave}
+                    className="text-xs text-primary hover:underline disabled:opacity-50"
+                  >
+                    {m.on_leave ? "销假" : "请假"}
+                  </button>
+                  {!amOwner && (
+                    <button
+                      disabled={busy}
+                      onClick={() => {
+                        if (window.confirm("确定退出该团体吗？历史积分会保留。"))
+                          onAction({ action: "leave" });
+                      }}
+                      className="text-xs text-soft hover:text-red-500 disabled:opacity-50"
+                    >
+                      退出
+                    </button>
+                  )}
+                </div>
               )}
             </li>
           );
@@ -452,7 +492,10 @@ function RankingTab({ members, myId }: { members: GroupMemberView[]; myId: strin
                 <span className="text-sm font-medium text-ink truncate">
                   {m.user.nickname}
                 </span>
-                <TitleBadge title={m.title} />
+                <TitleBadge
+                  title={m.title}
+                  leave={m.on_leave ? m.leave_title || "请假中" : null}
+                />
               </div>
             </div>
             {m.user.id === myId ? (
@@ -629,163 +672,163 @@ function SettingsTab({
 
       {amOwner && (
         <>
-      <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-4 md:p-5 space-y-3">
-        <h2 className="text-sm font-semibold text-ink">团体信息</h2>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          maxLength={30}
-          className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-        />
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          maxLength={500}
-          rows={2}
-          placeholder="团体简介"
-          className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
-        />
-        <textarea
-          value={announcement}
-          onChange={(e) => setAnnouncement(e.target.value)}
-          maxLength={1000}
-          rows={2}
-          placeholder="团体公告"
-          className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
-        />
-        <Button onClick={saveInfo} disabled={saving}>
-          {saving && <Loader2 size={16} className="animate-spin" />} 保存
-        </Button>
-      </section>
+          <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-4 md:p-5 space-y-3">
+            <h2 className="text-sm font-semibold text-ink">团体信息</h2>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={30}
+              className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            />
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={500}
+              rows={2}
+              placeholder="团体简介"
+              className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+            />
+            <textarea
+              value={announcement}
+              onChange={(e) => setAnnouncement(e.target.value)}
+              maxLength={1000}
+              rows={2}
+              placeholder="团体公告"
+              className="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+            />
+            <Button onClick={saveInfo} disabled={saving}>
+              {saving && <Loader2 size={16} className="animate-spin" />} 保存
+            </Button>
+          </section>
 
-      <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-4 md:p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-ink flex items-center gap-1.5">
-            <KeyRound size={15} className="text-primary" /> 邀请码
-          </h2>
-          <Button size="sm" variant="secondary" onClick={createInvite}>
-            <Plus size={14} /> 生成
-          </Button>
-        </div>
-        <ul className="space-y-2">
-          {invites.map((inv) => (
-            <li
-              key={inv.id}
-              className="flex items-center gap-2 rounded-xl border border-gray-100 px-3 py-2"
-            >
-              <span className="font-mono tracking-wider text-sm text-ink">
-                {inv.code}
-              </span>
-              <span className="text-xs text-soft">
-                已用 {inv.used_count}
-                {inv.max_uses != null ? `/${inv.max_uses}` : ""}
-                {!inv.enabled ? " · 已禁用" : ""}
-              </span>
-              <div className="ml-auto flex items-center gap-1">
-                <button
-                  onClick={() => copyLink(inv.code)}
-                  className="w-8 h-8 rounded-lg bg-gray-100 text-soft flex items-center justify-center hover:bg-gray-200"
-                  title="复制邀请链接"
-                >
-                  <Copy size={14} />
-                </button>
-                <button
-                  onClick={() => toggleInvite(inv)}
-                  className={cn(
-                    "px-2 h-8 rounded-lg text-xs",
-                    inv.enabled
-                      ? "bg-red-50 text-red-500 hover:bg-red-100"
-                      : "bg-primary-50 text-primary hover:bg-primary-100"
-                  )}
-                >
-                  {inv.enabled ? "禁用" : "启用"}
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-        <p className="text-xs text-soft">
-          分享邀请链接或邀请码，成员加入后自动获得 100 初始积分。
-        </p>
-      </section>
-
-      <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-4 md:p-5 space-y-3">
-        <h2 className="text-sm font-semibold text-ink">称号规则</h2>
-        {!rules ? (
-          <p className="text-sm text-soft">加载中…</p>
-        ) : (
-          <div className="space-y-2">
-            {rules.map((r, i) => (
-              <div key={i} className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  value={r.min}
-                  onChange={(e) => updateRule(i, { min: Number(e.target.value) })}
-                  className="w-16 rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
-                  placeholder="最低"
-                />
-                <span className="text-xs text-soft">–</span>
-                <input
-                  type="number"
-                  value={r.max == null ? "" : r.max}
-                  onChange={(e) =>
-                    updateRule(i, {
-                      max: e.target.value === "" ? null : Number(e.target.value),
-                    })
-                  }
-                  className="w-16 rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
-                  placeholder="∞"
-                />
-                <input
-                  value={r.emoji}
-                  onChange={(e) => updateRule(i, { emoji: e.target.value })}
-                  className="w-12 rounded-lg border border-gray-200 px-2 py-1.5 text-center text-sm"
-                  placeholder="🙂"
-                  maxLength={8}
-                />
-                <input
-                  value={r.name}
-                  onChange={(e) => updateRule(i, { name: e.target.value })}
-                  className="flex-1 min-w-0 rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
-                  placeholder="称号名称"
-                  maxLength={20}
-                />
-                <button
-                  onClick={() =>
-                    setRules((prev) =>
-                      prev ? prev.filter((_, idx) => idx !== i) : prev
-                    )
-                  }
-                  className="w-8 h-8 rounded-lg bg-red-50 text-red-500 flex items-center justify-center shrink-0"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() =>
-                  setRules((prev) => [
-                    ...(prev ?? []),
-                    { min: 300, max: null, name: "新称号", emoji: "✨" },
-                  ])
-                }
-              >
-                <Plus size={14} /> 添加等级
-              </Button>
-              <Button size="sm" onClick={saveRules} disabled={savingRules}>
-                {savingRules && <Loader2 size={14} className="animate-spin" />}{" "}
-                保存称号
+          <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-4 md:p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-ink flex items-center gap-1.5">
+                <KeyRound size={15} className="text-primary" /> 邀请码
+              </h2>
+              <Button size="sm" variant="secondary" onClick={createInvite}>
+                <Plus size={14} /> 生成
               </Button>
             </div>
+            <ul className="space-y-2">
+              {invites.map((inv) => (
+                <li
+                  key={inv.id}
+                  className="flex items-center gap-2 rounded-xl border border-gray-100 px-3 py-2"
+                >
+                  <span className="font-mono tracking-wider text-sm text-ink">
+                    {inv.code}
+                  </span>
+                  <span className="text-xs text-soft">
+                    已用 {inv.used_count}
+                    {inv.max_uses != null ? `/${inv.max_uses}` : ""}
+                    {!inv.enabled ? " · 已禁用" : ""}
+                  </span>
+                  <div className="ml-auto flex items-center gap-1">
+                    <button
+                      onClick={() => copyLink(inv.code)}
+                      className="w-8 h-8 rounded-lg bg-gray-100 text-soft flex items-center justify-center hover:bg-gray-200"
+                      title="复制邀请链接"
+                    >
+                      <Copy size={14} />
+                    </button>
+                    <button
+                      onClick={() => toggleInvite(inv)}
+                      className={cn(
+                        "px-2 h-8 rounded-lg text-xs",
+                        inv.enabled
+                          ? "bg-red-50 text-red-500 hover:bg-red-100"
+                          : "bg-primary-50 text-primary hover:bg-primary-100"
+                      )}
+                    >
+                      {inv.enabled ? "禁用" : "启用"}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
             <p className="text-xs text-soft">
-              积分区间需从 0 开始、不重叠、且最后一档上限留空（覆盖最高分）。
+              分享邀请链接或邀请码，成员加入后自动获得 100 初始积分。
             </p>
-          </div>
-        )}
-      </section>
+          </section>
+
+          <section className="rounded-2xl bg-white border border-gray-100/70 shadow-card p-4 md:p-5 space-y-3">
+            <h2 className="text-sm font-semibold text-ink">称号规则</h2>
+            {!rules ? (
+              <p className="text-sm text-soft">加载中…</p>
+            ) : (
+              <div className="space-y-2">
+                {rules.map((r, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      value={r.min}
+                      onChange={(e) => updateRule(i, { min: Number(e.target.value) })}
+                      className="w-16 rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
+                      placeholder="最低"
+                    />
+                    <span className="text-xs text-soft">–</span>
+                    <input
+                      type="number"
+                      value={r.max == null ? "" : r.max}
+                      onChange={(e) =>
+                        updateRule(i, {
+                          max: e.target.value === "" ? null : Number(e.target.value),
+                        })
+                      }
+                      className="w-16 rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
+                      placeholder="∞"
+                    />
+                    <input
+                      value={r.emoji}
+                      onChange={(e) => updateRule(i, { emoji: e.target.value })}
+                      className="w-12 rounded-lg border border-gray-200 px-2 py-1.5 text-center text-sm"
+                      placeholder="🙂"
+                      maxLength={8}
+                    />
+                    <input
+                      value={r.name}
+                      onChange={(e) => updateRule(i, { name: e.target.value })}
+                      className="flex-1 min-w-0 rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
+                      placeholder="称号名称"
+                      maxLength={20}
+                    />
+                    <button
+                      onClick={() =>
+                        setRules((prev) =>
+                          prev ? prev.filter((_, idx) => idx !== i) : prev
+                        )
+                      }
+                      className="w-8 h-8 rounded-lg bg-red-50 text-red-500 flex items-center justify-center shrink-0"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      setRules((prev) => [
+                        ...(prev ?? []),
+                        { min: 300, max: null, name: "新称号", emoji: "✨" },
+                      ])
+                    }
+                  >
+                    <Plus size={14} /> 添加等级
+                  </Button>
+                  <Button size="sm" onClick={saveRules} disabled={savingRules}>
+                    {savingRules && <Loader2 size={14} className="animate-spin" />}{" "}
+                    保存称号
+                  </Button>
+                </div>
+                <p className="text-xs text-soft">
+                  积分区间需从 0 开始、不重叠、且最后一档上限留空（覆盖最高分）。
+                </p>
+              </div>
+            )}
+          </section>
         </>
       )}
 
@@ -825,6 +868,143 @@ function SettingsTab({
         onCancel={() => setConfirmDelete(false)}
         onConfirm={disband}
       />
+    </div>
+  );
+}
+
+const LEAVE_DURATIONS = [3, 7, 14, 30] as const;
+
+function LeaveDialog({
+  open,
+  busy,
+  current,
+  onCancel,
+  onSave,
+}: {
+  open: boolean;
+  busy: boolean;
+  current: {
+    on_leave: boolean;
+    leave_title: string;
+    leave_until: number | null;
+  };
+  onCancel: () => void;
+  onSave: (v: { leaveUntil: number | null; leaveTitle: string }) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [days, setDays] = useState<number>(7);
+
+  useEffect(() => {
+    if (open) {
+      setTitle(current.leave_title || "");
+      setDays(7);
+    }
+  }, [open, current.leave_title]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/45 flex items-end sm:items-center justify-center sm:p-4"
+      onClick={() => {
+        if (!busy) onCancel();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl bg-white p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-semibold text-ink flex items-center gap-1.5">
+          <Palmtree size={16} className="text-primary" /> 设置我的请假状态
+        </h3>
+        <p className="mt-1 text-xs text-soft leading-relaxed">
+          设置后，团体内的所有成员都能在成员列表和积分榜看到你的请假状态，到期自动结束。
+        </p>
+        {current.on_leave && current.leave_until && (
+          <p className="mt-1 text-[11px] text-soft">
+            当前请假至{" "}
+            {new Date(current.leave_until).toLocaleDateString("zh-CN")}
+          </p>
+        )}
+
+        <label
+          htmlFor="leave-title"
+          className="mt-4 block text-xs font-medium text-ink"
+        >
+          状态说明
+        </label>
+        <input
+          id="leave-title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={20}
+          placeholder="例如：出差 / 生病休息 / 暂停活动"
+          className="mt-1 w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+        />
+
+        <div className="mt-4 flex items-center justify-between">
+          <span className="text-xs font-medium text-ink">请假时长</span>
+          <span className="text-[11px] text-soft">到期自动结束</span>
+        </div>
+        <div className="mt-2 grid grid-cols-4 gap-2">
+          {LEAVE_DURATIONS.map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => setDays(d)}
+              className={cn(
+                "rounded-xl border px-2 py-2 text-xs transition-colors",
+                days === d
+                  ? "border-primary bg-primary-50 font-medium text-primary"
+                  : "border-gray-200 text-soft hover:bg-gray-50"
+              )}
+            >
+              {d} 天
+            </button>
+          ))}
+        </div>
+
+        {current.on_leave && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onSave({ leaveUntil: null, leaveTitle: "" })}
+            className="mt-4 w-full rounded-xl bg-red-50 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
+          >
+            结束请假
+          </button>
+        )}
+
+        <div className="mt-2 flex gap-2">
+          <Button
+            variant="ghost"
+            onClick={onCancel}
+            disabled={busy}
+            className="flex-1"
+          >
+            取消
+          </Button>
+          <Button
+            onClick={() =>
+              onSave({
+                leaveUntil: Date.now() + days * 86400000,
+                leaveTitle: title.trim() || "请假中",
+              })
+            }
+            disabled={busy}
+            className="flex-1"
+          >
+            {busy ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Palmtree size={16} />
+            )}
+            {current.on_leave ? "更新状态" : "开始请假"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

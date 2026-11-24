@@ -55,10 +55,28 @@ export async function PATCH(req: Request, ctx: Ctx) {
       : NextResponse.json(r);
   }
   if (action === "setLeave") {
-    const target = String(body?.userId ?? uid);
-    const leaveUntil = body?.leaveUntil ? Number(body.leaveUntil) : null;
+    // 请假状态只能由本人设置，设置后团体全体成员可见。
+    if (body?.userId != null && String(body.userId) !== uid)
+      return NextResponse.json(
+        { error: "只能设置自己的请假状态" },
+        { status: 400 }
+      );
+    const leaveUntil =
+      body?.leaveUntil == null ? null : Number(body.leaveUntil);
+    if (leaveUntil != null) {
+      if (!Number.isFinite(leaveUntil))
+        return NextResponse.json({ error: "请假时间无效" }, { status: 400 });
+      const now = Date.now();
+      if (leaveUntil < now + 60_000)
+        return NextResponse.json(
+          { error: "请假结束时间需要晚于现在" },
+          { status: 400 }
+        );
+      if (leaveUntil > now + 366 * 24 * 3600 * 1000)
+        return NextResponse.json({ error: "请假时间过长" }, { status: 400 });
+    }
     const leaveTitle = String(body?.leaveTitle ?? "请假中");
-    const r = await setMemberLeave(id, target, leaveUntil, leaveTitle, uid);
+    const r = await setMemberLeave(id, uid, leaveUntil, leaveTitle);
     return "error" in r
       ? NextResponse.json({ error: r.error }, { status: 400 })
       : NextResponse.json(r);
